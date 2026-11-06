@@ -1,0 +1,27 @@
+{
+  "name": "gis-viewer-kit-gis",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cesium 기반 GIS 확인 페이지 (여러 데이터 겹쳐 보기). three.js 뷰어(../viewer)와 별개의 페이지.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "assets": "node scripts/copy-cesium.mjs",
+    "dev": "node scripts/copy-cesium.mjs && vite",
+    "build": "node scripts/copy-cesium.mjs && vite build",
+    "preview": "vite preview --port 5179",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "but-unzip": "^0.1.10",
+    "cesium": "1.147.0",
+    "fast-xml-parser": "^5.12.0",
+    "geotiff": "3.0.5",
+    "proj4": "^2.22.0",
+    "shpjs": "^6.2.0"
+  },
+  "devDependencies": {
+    "vite": "^8.2.0",
+    "vitest": "^4.1.10"
+  }
+}

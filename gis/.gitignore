@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# Cesium 정적 에셋은 npm install 뒤 `npm run assets`(dev/build가 자동 실행)로 복사한다
+public/cesium/

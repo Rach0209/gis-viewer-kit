@@ -1,0 +1,27 @@
+{
+  "name": "gis-viewer-kit",
+  "private": true,
+  "license": "MIT",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "3D Tiles / glb 3D viewer (three.js) that opens local files in the browser, embeddable with a single script tag.",
+  "scripts": {
+    "dev": "vite",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "vite build -c vite.site.config.js",
+    "preview": "vite preview -c vite.site.config.js",
+    "build:site": "vite build -c vite.site.config.js",
+    "build:lib": "vite build -c vite.lib.config.js",
+    "preview:lib": "vite preview -c vite.lib.config.js"
+  },
+  "dependencies": {
+    "3d-tiles-renderer": "^0.5.0",
+    "proj4": "^2.21.0",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "vite": "^8.2.0",
+    "vitest": "^4.1.10"
+  }
+}

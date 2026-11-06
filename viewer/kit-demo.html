@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>gis-viewer-kit 3D 뷰어</title>
+    <style>
+      html, body { height: 100%; margin: 0; background: #0b0d10; }
+      body { display: flex; flex-direction: column; font: 14px/1.5 system-ui, "Malgun Gothic", sans-serif; color: #e8edf0; }
+      header { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid #222a30; }
+      header input[type="text"] { flex: 1 1 320px; min-width: 0; padding: 6px 10px; background: #14191d; color: inherit; border: 1px solid #2b353c; border-radius: 4px; font: inherit; }
+      #home-link { color: #5cc4d1; text-decoration: none; padding: 6px 8px; border: 1px solid #2f4452; border-radius: 4px; background: #14191d; white-space: nowrap; }
+      #home-link:hover { border-color: #5cc4d1; }
+      header button { padding: 6px 12px; background: #1d2a33; color: inherit; border: 1px solid #2f4452; border-radius: 4px; font: inherit; cursor: pointer; }
+      header button:hover { border-color: #5cc4d1; }
+      #viewer { flex: 1 1 auto; min-height: 0; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <a id="home-link" href="../" hidden title="시작 화면으로">← 홈</a>
+      <input id="url" type="text" value="https://raw.githubusercontent.com/NASA-AMMOS/3DTilesRendererJS/master/example/public/data/tileset.json" aria-label="tileset.json 주소" />
+      <button id="load-url" type="button">URL 열기</button>
+      <details id="server-box" style="flex: 1 1 100%">
+        <summary style="cursor: pointer; opacity: 0.75">서버 연결 (선택) — 서버가 없어도 폴더·glb·URL로 모두 쓸 수 있습니다</summary>
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding-top: 8px">
+          <input id="api" type="text" value="http://localhost:8080" style="flex: 0 1 220px" aria-label="타일 서버 주소" />
+          <button id="list-server" type="button">서버 목록</button>
+          <select id="server-tilesets" hidden aria-label="서버 타일셋"></select>
+          <button id="load-server" type="button" hidden>서버에서 열기</button>
+          <span id="server-msg" style="opacity: 0.7"></span>
+        </div>
+      </details>
+    </header>
+    <div id="viewer"></div>
+    <script type="module" src="/src/kit/demo.js"></script>
+  </body>
+</html>

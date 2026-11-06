@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>gis-viewer-kit 임베드 예제</title>
+    <style>
+      /* 이 페이지에는 뷰어 코드가 없다. 아래 <script> 한 줄이 전부다. */
+      html, body { height: 100%; margin: 0; background: #0b0d10; color: #e8edf0; font: 14px/1.5 system-ui, "Malgun Gothic", sans-serif; }
+      body { display: flex; flex-direction: column; }
+      header { padding: 8px 12px; border-bottom: 1px solid #222a30; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      header input { flex: 1 1 320px; min-width: 0; padding: 6px 10px; background: #14191d; color: inherit; border: 1px solid #2b353c; border-radius: 4px; font: inherit; }
+      header button { padding: 6px 12px; background: #1d2a33; color: inherit; border: 1px solid #2f4452; border-radius: 4px; font: inherit; cursor: pointer; }
+      #viewer { flex: 1 1 auto; min-height: 0; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>임베드 예제</strong>
+      <input id="url" type="text" placeholder="tileset.json 주소 (비워 두고 '폴더 열기'로 로컬 타일셋을 열어도 됩니다)" aria-label="tileset.json 주소" />
+      <button id="open" type="button">URL 열기</button>
+      <label>glb 파일 <input id="glb" type="file" accept=".glb" /></label>
+    </header>
+
+    <!-- 뷰어가 들어갈 자리. 높이가 있어야 한다. -->
+    <div id="viewer"></div>
+
+    <!-- 1) 번들 로드. draco/, basis/ 폴더는 이 파일 옆에 두면 자동으로 찾는다. -->
+    <script src="./tile-viewer.iife.js"></script>
+    <script>
+      // 2) 만들기. 필요한 옵션만 적는다 (docs/03-viewer-api.md).
+      var viewer = TileViewer.create(document.getElementById('viewer'), {
+        persistence: 'localStorage', // 메모를 이 브라우저에 저장. 생략하면 저장 안 함
+        // decoderBaseUrl: 'https://cdn.example.com/tv/',  // 디코더를 다른 곳에 둘 때만
+      });
+
+      // 3) 타일셋 열기: 'URL 열기' 버튼, 화면의 '폴더 열기' 버튼(서버 없이 로컬 폴더), 폴더 끌어놓기.
+      function openUrl(url) {
+        viewer.loadTileset({ kind: 'url', url: url }).catch(function () {});
+      }
+      document.getElementById('open').addEventListener('click', function () {
+        var url = document.getElementById('url').value.trim();
+        if (url) openUrl(url);
+      });
+      // 4) glb 한 개 열기: 위치를 고르는 대화상자(지도 클릭/좌표 입력)가 뜬다. 화면의 'glb 열기' 버튼이나 파일 끌어놓기로도 된다.
+      //    대화상자 없이 바로 배치하려면 두 번째 인자로 위치를 준다:
+      //      viewer.loadModel(file, { type: 'coords', crs: 'EPSG:5179', x: 953901.17, y: 1952032.08, height: 0 });
+      //      viewer.loadModel(file, { type: 'single' });   // 좌표 없이 모델만 보기
+      document.getElementById('glb').addEventListener('change', function (e) {
+        var file = e.target.files[0];
+        if (file) viewer.loadModel(file).catch(function () {});
+        e.target.value = '';
+      });
+
+      var q = new URLSearchParams(location.search);
+      if (q.get('url')) {
+        document.getElementById('url').value = q.get('url');
+        var profile = {};
+        if (q.get('errorTarget')) profile.errorTarget = Number(q.get('errorTarget'));
+        if (q.get('fade') === '0') profile.enableFade = false;
+        viewer.loadTileset({ kind: 'url', url: q.get('url') }, profile).catch(function () {});
+      }
+    </script>
+
+    <!--
+      ES 모듈로 쓸 때:
+        <script type="module">
+          import { create } from './tile-viewer.es.js';
+          const viewer = create(document.getElementById('viewer'));
+        </script>
+    -->
+  </body>
+</html>

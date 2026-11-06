@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GIS 확인 페이지</title>
+    <link rel="stylesheet" href="./cesium/Widgets/widgets.css" />
+    <style>
+      :root {
+        --bg: #0b0d10; --panel: #14191d; --panel-2: #1d2a33; --line: #2b353c; --accent: #5cc4d1;
+        --text: #e8edf0; --muted: #9aa6ad; --warn: #e6b450; --bad: #e57373; --ok: #7fd18b;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font: 13px/1.5 system-ui, "Malgun Gothic", sans-serif; }
+      body { display: flex; flex-direction: column; }
+      #home-link { color: var(--accent); text-decoration: none; padding: 4px 10px; border: 1px solid #2f4452; border-radius: 4px; background: var(--panel-2); white-space: nowrap; }
+      #home-link:hover { border-color: var(--accent); }
+      #bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+      button, select, input { font: inherit; color: inherit; background: var(--panel-2); border: 1px solid #2f4452; border-radius: 4px; padding: 4px 10px; }
+      button { cursor: pointer; }
+      button:hover { border-color: var(--accent); }
+      button.primary { background: #1f5560; border-color: var(--accent); }
+      button.small { padding: 1px 7px; font-size: 12px; white-space: nowrap; flex: none; }
+      #stage { position: relative; flex: 1 1 auto; min-height: 0; }
+      #cesium { position: absolute; inset: 0; }
+      #cesium.picking .cesium-widget canvas { cursor: crosshair; }
+      /* 스크롤바: 기본 대신 어두운 화면에 맞는 얇은 막대 (패널과 그 안의 스크롤 영역 모두) */
+      .panel::-webkit-scrollbar, .panel *::-webkit-scrollbar { width: 10px; height: 10px; }
+      .panel::-webkit-scrollbar-track, .panel *::-webkit-scrollbar-track { background: transparent; margin: 4px 0; }
+      .panel::-webkit-scrollbar-thumb, .panel *::-webkit-scrollbar-thumb { background: #3b4c58; border-radius: 5px; border: 2px solid transparent; background-clip: padding-box; }
+      .panel::-webkit-scrollbar-thumb:hover, .panel *::-webkit-scrollbar-thumb:hover { background: #5cc4d1; background-clip: padding-box; }
+      .panel::-webkit-scrollbar-corner, .panel *::-webkit-scrollbar-corner { background: transparent; }
+      @supports not selector(::-webkit-scrollbar) { .panel, .panel * { scrollbar-width: thin; scrollbar-color: #3b4c58 transparent; } }
+      .panel { position: absolute; background: rgba(20, 25, 29, 0.94); border: 1px solid var(--line); border-radius: 6px; z-index: 5; }
+      #layers { top: 10px; left: 10px; width: 330px; max-height: calc(100% - 60px); overflow: auto; padding: 8px 10px; }
+      #layers h2, #place h2 { margin: 0 0 6px; font-size: 13px; }
+      #layers .row { display: flex; align-items: center; gap: 6px; padding: 3px 0; border-top: 1px solid var(--line); }
+      #layers .row .name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #layers .empty { color: var(--muted); }
+      /* 전체 켜기/끄기·전체 삭제 줄: 아래 개별 레이어와 구분선으로 나눈다 */
+      #layers .row.bar { border-top: none; border-bottom: 2px solid var(--muted); padding: 2px 0 6px; margin-bottom: 4px; color: var(--muted); }
+      #place { top: 10px; right: 10px; width: 370px; max-height: calc(100% - 60px); overflow: auto; padding: 10px 12px; }
+      #place .sub { color: var(--muted); font-size: 12px; }
+      #place fieldset { margin: 8px 0; border: 1px solid var(--line); border-radius: 4px; }
+      #place legend { color: var(--muted); font-size: 12px; padding: 0 4px; }
+      #place .form { display: grid; grid-template-columns: 90px 1fr; gap: 4px 8px; align-items: center; }
+      #place input[type="number"], #place select { width: 100%; }
+      #place .warn { color: var(--warn); font-size: 12px; margin: 4px 0; }
+      #place .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+      #place .nudge { display: grid; grid-template-columns: repeat(3, 38px); gap: 3px; justify-content: center; align-items: center; text-align: center; margin: 6px 0; }
+      #place .inline { display: flex; gap: 4px; align-items: center; }
+      #place .inline input[type="range"] { flex: 1 1 auto; min-width: 0; padding: 0; }
+      #place .inline input[type="number"] { width: 76px; flex: none; }
+      #place button[aria-pressed="true"] { background: #1f5560; border-color: var(--accent); }
+      #place .picked { border: 1px solid var(--accent); border-radius: 4px; padding: 6px 8px; margin: 6px 0; }
+      #layers .memo { padding: 2px 0 6px 22px; }
+      #layers .memo textarea { width: 100%; min-height: 54px; max-height: 160px; resize: vertical; font: inherit; font-size: 12px; color: var(--text); background: var(--panel-2); border: 1px solid #2f4452; border-radius: 4px; padding: 4px 6px; }
+      #layers .memo textarea:focus { outline: none; border-color: var(--accent); }
+      #layers .memo .sub { color: var(--muted); font-size: 11px; }
+      #layers .legend { padding: 2px 0 6px 22px; font-size: 12px; }
+      #layers .lg { display: flex; align-items: center; gap: 6px; padding: 1px 0; cursor: pointer; }
+      #layers .lg.dim { color: var(--muted); }
+      #layers .sw { width: 14px; height: 14px; flex: none; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 2px; }
+      #layers .legend .warn { color: var(--warn); margin-top: 4px; }
+      #info { right: 10px; bottom: 44px; width: 320px; max-height: 40%; overflow: auto; padding: 8px 10px; }
+      #info h2 { margin: 0 0 4px; font-size: 13px; }
+      #info table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      #info td { padding: 1px 4px; border-top: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+      #info td:first-child { color: var(--muted); white-space: nowrap; }
+      #info .close { float: right; }
+      #place .sample { font-size: 12px; margin: 4px 0; overflow-wrap: anywhere; }
+      #coord { right: 10px; bottom: 10px; padding: 3px 8px; display: flex; gap: 8px; align-items: center; font-size: 12px; font-variant-numeric: tabular-nums; pointer-events: auto; }
+      #coord select { padding: 1px 4px; font-size: 12px; max-width: 150px; }
+      #coord-text { white-space: nowrap; }
+      /* 구간 목록만 스크롤되고, 아래 버튼(선 끝내기·모두 지우기·재기 끝)은 항상 보인다 */
+      #measure { left: 10px; bottom: 44px; width: 310px; max-height: 45%; display: flex; flex-direction: column; overflow: hidden; padding: 8px 10px; }
+      #measure[hidden] { display: none; }
+      #measure .m-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding-right: 2px; }
+      #measure .m-foot { flex: none; border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; }
+      #measure h2 { margin: 0 0 4px; font-size: 13px; }
+      #measure .sub { color: var(--muted); font-size: 12px; }
+      #measure table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 4px 0; }
+      #measure td, #measure th { padding: 1px 4px; border-top: 1px solid var(--line); text-align: right; font-weight: normal; }
+      #measure td:first-child, #measure th:first-child { text-align: left; color: var(--muted); }
+      #measure tr.clickable { cursor: pointer; }
+      #measure tr.clickable:hover td { background: rgba(92, 196, 209, 0.15); }
+      #measure tr.sel td { background: rgba(255, 230, 0, 0.22); color: var(--text); }
+      #measure .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+      #btn-measure[aria-pressed="true"], #btn-area[aria-pressed="true"] { background: #1f5560; border-color: var(--accent); }
+      #status { position: absolute; left: 10px; bottom: 10px; max-width: 70%; padding: 4px 10px; background: rgba(20, 25, 29, 0.94); border: 1px solid var(--line); border-radius: 4px; z-index: 5; }
+      #status.error { border-color: var(--bad); color: var(--bad); }
+      #status.busy { border-color: var(--accent); }
+      #drop { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(11, 13, 16, 0.7); border: 2px dashed var(--accent); font-size: 18px; z-index: 9; pointer-events: none; }
+      #drop.on { display: flex; }
+      @media (max-width: 700px) { #layers { width: calc(100% - 20px); max-height: 40%; } #place { top: auto; bottom: 50px; right: 10px; left: 10px; width: auto; } }
+    </style>
+  </head>
+  <body>
+    <div id="bar">
+      <a id="home-link" href="../" hidden title="시작 화면으로">← 홈</a>
+      <button id="btn-folder" type="button">3D Tiles 폴더 열기</button>
+      <button id="btn-glb" type="button">glb 열기</button>
+      <button id="btn-vec" type="button">GeoJSON / SHP 열기</button>
+      <button id="btn-dem" type="button">지형(DEM) 열기</button>
+      <button id="btn-terrain" type="button" title="Cesium 지형 타일 폴더(layer.json + .terrain 타일)">지형 타일 폴더 열기</button>
+      <span style="opacity: 0.4">|</span>
+      <select id="sel-map" aria-label="배경 지도"></select>
+      <input id="in-key" type="password" placeholder="VWorld API 키" autocomplete="off" hidden aria-label="VWorld API 키" />
+      <span style="opacity: 0.4">|</span>
+      <button id="btn-measure" type="button" aria-pressed="false">거리 재기</button>
+      <button id="btn-area" type="button" aria-pressed="false">면적 재기</button>
+      <button id="btn-home" type="button">처음 시점</button>
+      <button id="btn-shot" type="button">스크린샷</button>
+    </div>
+    <div id="stage">
+      <div id="cesium"></div>
+      <div id="layers" class="panel"><h2>레이어</h2><div id="layer-list"></div></div>
+      <div id="place" class="panel" hidden></div>
+      <div id="info" class="panel" hidden></div>
+      <div id="measure" class="panel" hidden></div>
+      <div id="coord" class="panel"><select id="sel-crs" aria-label="좌표 표시 좌표계"></select><span id="coord-text">지도 위에 마우스를 올려 보세요</span></div>
+      <div id="status" hidden></div>
+      <div id="drop">폴더, glb, GeoJSON / SHP, 지형(.tif 또는 지형 타일 폴더)을 여기에 놓으세요</div>
+    </div>
+    <script>
+      window.CESIUM_BASE_URL = new URL('./cesium/', window.location.href).href; // 하위 경로(GitHub Pages 등)에서도 동작하게 상대 경로
+    </script>
+    <script src="./cesium/Cesium.js"></script>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

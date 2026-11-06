@@ -1,0 +1,27 @@
+# 의존성 / 빌드 산출물
+node_modules/
+dist/
+dist-site/
+_site/
+
+# Cesium 정적 파일은 빌드할 때 node_modules에서 복사한다 (gis: npm run assets)
+gis/public/cesium
+
+# 샘플 자료는 스크립트로 만든다 (samples/README.md 참고). 안내 파일만 올린다
+samples/*
+!samples/README.md
+
+# 큰 타일 데이터를 개발 서버에 연결하는 링크 (docs/06-dev-environment.md)
+viewer/public/tiles-real
+
+# IDE / OS
+.idea/
+*.iml
+.DS_Store
+
+# 로컬 설정
+.env.local
+*.log
+
+# 개발 도구(Claude 앱 등) 로컬 설정
+.claude/

@@ -1,0 +1,9 @@
+* text=auto
+*.wasm binary
+*.glb binary
+*.ktx2 binary
+*.png binary
+
+# Maven wrapper: 셸 스크립트는 항상 LF, cmd는 CRLF
+mvnw text eol=lf
+*.cmd text eol=crlf
