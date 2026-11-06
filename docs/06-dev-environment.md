@@ -46,7 +46,6 @@ ln -s "<내 타일셋 폴더>" viewer/public/tiles-real
 | 무엇 | 명령 | 결과 |
 |---|---|---|
 | 임베드용 `<script>` 번들 | `cd viewer && npm run build:lib` | `viewer/dist/` (`tile-viewer.iife.js`, `draco/`, `basis/`, `THIRD-PARTY-NOTICES.txt`). 미리 보기 `npm run preview:lib` |
-| 사이트 전체 (시작 화면 + 3D 뷰어 + GIS 작업실) | `node scripts/build-site.mjs` | `_site/`. 하위 경로 미리 보기 `node scripts/serve-site.mjs` → `http://localhost:4180/gis-viewer-kit/` |
 
 사이트는 상대 경로(`base: './'`)로 빌드해서 `https://<아이디>.github.io/<저장소>/` 같은 하위 경로에 올려도 동작한다. `main`에 올리면 `.github/workflows/pages.yml`이 테스트와 빌드를 한 뒤 GitHub Pages에 배포한다.
 

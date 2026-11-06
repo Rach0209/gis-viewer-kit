@@ -69,7 +69,6 @@ gis-viewer-kit/
 ├─ site/        시작 화면 (정적 HTML 한 장)
 ├─ viewer/      3D 뷰어: Vite + three.js, 임베드용 번들(build:lib), 사이트용 빌드(build:site)
 ├─ gis/         GIS 작업실: Vite + Cesium
-├─ scripts/     사이트 묶기(build-site)와 하위 경로 미리 보기(serve-site)
 ├─ docs/        설계·API·사용 문서
 ├─ samples/     샘플 자료를 만드는 방법 (자료는 스크립트로 생성, git 제외)
 └─ .github/     GitHub Pages 배포 설정
