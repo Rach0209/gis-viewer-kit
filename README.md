@@ -32,17 +32,6 @@ npm run dev          # http://localhost:5178
 npm test
 ```
 
-## 사이트(시작 화면 + 두 페이지) 만들기
-
-```bash
-cd viewer && npm install && cd ../gis && npm install && cd ..
-node scripts/build-site.mjs      # -> _site/ (시작 화면 + viewer/ + gis/)
-node scripts/serve-site.mjs      # http://localhost:4180/gis-viewer-kit/ 에서 하위 경로로 확인
-```
-
-`main`에 올리면 [GitHub Actions](.github/workflows/pages.yml)가 테스트와 빌드를 한 뒤 GitHub Pages에 배포합니다.
-처음 한 번만 저장소 **Settings ▸ Pages ▸ Source** 를 **GitHub Actions** 로 바꾸세요.
-
 ## `<script>` 한 줄로 내 웹페이지에 넣기
 
 ```bash
