@@ -201,7 +201,8 @@ export async function inspectContent(src, rootJson, { maxContents = 4, maxJsonFe
 /** wasm 파일인지 앞 4바이트(\0asm)로 확인한다. Vite dev 서버는 없는 파일에도 index.html을 200으로 주기 때문. */
 async function isWasmAt(url) {
   try {
-    const res = await fetch(url, { headers: { Range: 'bytes=0-3' } });
+    // cache: 'no-store' — 4바이트 부분 응답이 캐시에 남으면 뒤이은 실제 wasm 로드가 4바이트만 받아 실패한다.
+    const res = await fetch(url, { cache: 'no-store', headers: { Range: 'bytes=0-3' } });
     if (!res.ok) return false;
     const b = new Uint8Array(await res.arrayBuffer());
     return b[0] === 0x00 && b[1] === 0x61 && b[2] === 0x73 && b[3] === 0x6d;

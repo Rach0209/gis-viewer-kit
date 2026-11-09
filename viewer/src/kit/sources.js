@@ -103,7 +103,9 @@ async function fetchJson(url) {
  * 스트림을 필요한 만큼만 읽고 취소하므로 수십 MB를 받지 않는다.
  */
 async function fetchRange(url, start, length) {
-  const res = await fetch(url, { mode: 'cors', headers: { Range: `bytes=${start}-${start + length - 1}` } });
+  // cache: 'no-store' — 부분 응답(206)이 브라우저 캐시에 남으면, 같은 주소를 전체로 다시 받을 때
+  // 일부만 돌려받는 문제가 생긴다 (GitHub Pages 같은 Range 지원 서버에서 확인됨).
+  const res = await fetch(url, { mode: 'cors', cache: 'no-store', headers: { Range: `bytes=${start}-${start + length - 1}` } });
   if (!res.ok) throw new Error(`가져오지 못했습니다 (HTTP ${res.status}): ${url}`);
   const skip = res.status === 206 ? 0 : start; // 200이면 처음부터 오므로 start까지 건너뛴다
   const want = skip + length;
