@@ -3,7 +3,7 @@
 내 **3D Tiles · glb · GeoJSON · SHP · 지형(DEM)** 을 **업로드 없이 브라우저에서 바로 열어 보는** 3D·GIS 도구입니다.
 파일은 이 브라우저 안에서만 처리되고 어디로도 전송되지 않습니다. 서버가 필요 없어서 GitHub Pages 같은 정적 호스팅에 그대로 올릴 수 있습니다.
 
-> 사이트: `https://rach0209.github.io/gis-viewer-kit/`
+> 사이트: [web-page:](https://rach0209.github.io/gis-viewer-kit/)
 
 사이트에는 두 가지 화면이 있습니다 (시작 화면에서 고릅니다).
 
