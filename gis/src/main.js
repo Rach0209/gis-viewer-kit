@@ -1,7 +1,6 @@
 /* global Cesium */
 // GIS 확인 페이지(Cesium). ion을 쓰지 않고 OSM/VWorld만 쓴다. 서버 없이 로컬 폴더·파일을 바로 연다.
 import { pickFolder, pickGlbFile, glbFromDropEvent, allFromDropEvent } from '../../viewer/src/kit/folderPicker.js';
-import { inspectGlb } from '../../viewer/src/kit/glbInspect.js';
 import { findEmbeddedPlacements } from '../../viewer/src/kit/embeddedCoords.js';
 import { projectedAnchor } from '../../viewer/src/kit/projectedAnchor.js';
 import { createVirtualFolders } from './virtualFiles.js';
@@ -11,12 +10,12 @@ import { createLayerStore } from './layers.js';
 import { buildModelMatrix, createModel } from './modelPlace.js';
 import { nudgeLonLat, pickEditable, sanitizeEdit } from './modelEdit.js';
 import { showEditPanel } from './modelEditUi.js';
-import { collectGroups, isVectorFileName, readRaw } from './vectorParse.js';
+import { isVectorFileName } from './vectorNames.js';
+import { currentPerf, demLimitHint, readEnv, resolvePerf, savePref } from '../../viewer/src/kit/perfMode.js';
+import { openVectorFiles, readDemTextParallel, readDemTiff } from './work/client.js';
 import { applyStyle, createVectorDataSource, entityProperties, setRuleVisible, updateScale } from './vectorLayer.js';
 import { parseSld } from './sld.js';
 import { showVectorPanel } from './vectorUi.js';
-import { readDemFile } from './demLoad.js';
-import { readDemText } from './demText.js';
 import { createDemTerrain, demInfoRows } from './demTerrain.js';
 import { showDemPanel } from './demUi.js';
 import { openTerrainTiles } from './terrainTiles.js';
@@ -81,6 +80,24 @@ viewer.scene.globe.depthTestAgainstTerrain = true;
 const folders = createVirtualFolders();
 installLocalFileLoader(Cesium, folders);
 const layers = createLayerStore(viewer, { memoStore: createMemoStore() });
+
+// ---------------------------------------------------------------- 성능 모드 (저사양 PC)
+// 자동: 이 PC의 코어 수·메모리로 판단. 저사양이면 선 부드럽게(MSAA)를 끄고 지형·3D 타일을 덜 자세히 불러온다.
+// 3D 뷰어와 같은 설정을 쓴다 (같은 사이트라 저장값도 공유).
+let perf = currentPerf();
+const TILESET_SSE = 16; // Cesium 3D Tiles 기본값
+const GLOBE_SSE = 2; // Cesium 지형 기본값
+function applyPerf() {
+  const scene = viewer.scene;
+  scene.msaaSamples = perf.msaaSamples;
+  scene.globe.maximumScreenSpaceError = GLOBE_SSE * perf.tileQualityScale;
+  for (const l of layers.list()) {
+    if (l.kind === 'tileset' && l.object && 'maximumScreenSpaceError' in l.object) l.object.maximumScreenSpaceError = TILESET_SSE * perf.tileQualityScale;
+  }
+}
+applyPerf();
+/** 지형(DEM) 읽기 상한: 저사양이면 낮추고, 넘으면 모드를 바꿀 수 있다고 알려 준다 */
+const demLimits = () => ({ maxPixels: perf.maxDemPixels, hint: demLimitHint(perf) });
 const highlighter = createHighlighter(viewer);
 layers.onChange(() => highlighter.validate()); // 강조 중인 레이어를 지우거나 끄면 강조도 없앤다
 
@@ -363,7 +380,7 @@ async function openTilesFromFiles(files, name = '로컬 폴더') {
   setStatus('3D Tiles 여는 중…', 'busy');
   let tileset;
   try {
-    tileset = await Cesium.Cesium3DTileset.fromUrl(reg.entryUrl, { maximumScreenSpaceError: 16 });
+    tileset = await Cesium.Cesium3DTileset.fromUrl(reg.entryUrl, { maximumScreenSpaceError: TILESET_SSE * perf.tileQualityScale });
   } catch (e) {
     folders.release(reg.id);
     throw e;
@@ -392,6 +409,7 @@ $('btn-folder').addEventListener('click', openFolderDialog);
 
 // ---------------------------------------------------------------- glb: 위치 정하기 패널
 const placeEl = $('place');
+let placeCleanup = null; // 열려 있는 패널이 붙들고 있는 것을 놓는 함수 (벡터 열기 패널: 워커에 둔 원본)
 function closePlace() {
   disarmPick();
   // 편집 중이던 모델의 끌어서 이동은 패널이 사라지면 같이 끝낸다 (지도 이동이 잠긴 채로 남지 않게)
@@ -403,6 +421,10 @@ function closePlace() {
   }
   placeEl.hidden = true;
   placeEl.replaceChildren();
+  // 패널이 버튼이 아닌 다른 이유(다른 파일 놓기 등)로 닫혀도, 패널이 붙들고 있던 것(워커에 둔 원본)을 놓는다
+  const cleanup = placeCleanup;
+  placeCleanup = null;
+  cleanup?.();
 }
 
 /** 이어서 열 작업 (끌어놓은 자료를 여러 개 골랐을 때 glb 위치 정하기를 하나씩 이어 간다) */
@@ -424,6 +446,8 @@ const numField = (value, step = 'any') => {
 async function startGlb(file) {
   let info;
   try {
+    // glb 검사는 three.js 계산을 쓰므로 glb를 열 때만 불러온다 (지도만 쓰는 사람은 받지 않는다)
+    const { inspectGlb } = await import('../../viewer/src/kit/glbInspect.js');
     info = inspectGlb(await file.arrayBuffer());
   } catch (e) {
     setStatus(errMsg(e), 'error');
@@ -844,12 +868,12 @@ function exaggerationSelect(l) {
 // ---------------------------------------------------------------- 지형(DEM)
 /** GeoTIFF 한 개를 읽어 열기 패널을 띄운다 */
 async function startDem(file) {
-  return openDem(() => readDemFile(file), file.name);
+  return openDem(() => readDemTiff(file, demLimits()), file.name);
 }
 
 /** 글자(XYZ 점 목록 여러 개 / ASCII 격자) DEM 파일들을 하나의 지형으로 읽어 열기 패널을 띄운다 */
 async function startDemText(files) {
-  return openDem(() => readDemText(files), files.length === 1 ? files[0].name : `${files[0].name} 외 ${files.length - 1}개`);
+  return openDem(() => readDemTextParallel(files, demLimits()), files.length === 1 ? files[0].name : `${files[0].name} 외 ${files.length - 1}개`);
 }
 
 /** 선택한 DEM 파일들: GeoTIFF는 하나씩, 글자 파일(.txt/.xyz/.asc)은 모두 합쳐서 하나로 */
@@ -965,30 +989,21 @@ $('btn-dem').addEventListener('click', () => {
 /** 선택한 파일들(GeoJSON, SHP 묶음, ZIP)을 읽어 열기 패널을 띄운다 */
 async function startVector(fileList) {
   const files = [...fileList];
+  let opened = null;
   try {
     setStatus('파일 읽는 중…', 'busy');
-    const { groups, skipped, styles: styleFiles } = await collectGroups(files);
-    if (!groups.length) {
-      setStatus('GeoJSON 또는 SHP(.shp)를 찾지 못했습니다. SHP는 .shp와 함께 .dbf/.prj 파일도 같이 선택하세요(또는 .zip).', 'error');
-      return advanceQueue();
-    }
-    const items = [];
-    const errors = [];
-    for (const g of groups) {
-      try {
-        items.push({ name: g.name, raw: await readRaw(g) });
-      } catch (e) {
-        errors.push(errMsg(e));
-      }
-    }
+    // 읽기(ZIP 풀기, SHP/GeoJSON 해석)는 워커가 한다. 묶음마다 다른 워커가 동시에 읽는다.
+    opened = await openVectorFiles(files);
+    const { items, skipped, errors } = opened;
     if (!items.length) {
-      setStatus(errors[0], 'error');
+      opened.release();
+      setStatus(errors[0] ?? 'GeoJSON 또는 SHP(.shp)를 찾지 못했습니다. SHP는 .shp와 함께 .dbf/.prj 파일도 같이 선택하세요(또는 .zip).', 'error');
       return advanceQueue();
     }
     const styles = [];
-    for (const s of styleFiles) {
+    for (const s of opened.styles) {
       try {
-        styles.push({ name: s.name, style: parseSld(new TextDecoder('utf-8').decode(await s.read())) });
+        styles.push({ name: s.name, style: parseSld(s.text) });
       } catch (e) {
         errors.push(`${s.name}: ${errMsg(e)}`);
       }
@@ -998,10 +1013,12 @@ async function startVector(fileList) {
       skipped: [...skipped, ...errors],
       styles,
       onCancel: () => {
+        opened.release();
         closePlace();
         advanceQueue();
       },
       onConfirm: async (results) => {
+        opened.release(); // 인코딩·좌표계를 다시 고를 일은 끝났으니 워커에 둔 원본을 놓는다
         try {
           let last = null;
           for (const r of results) {
@@ -1025,8 +1042,10 @@ async function startVector(fileList) {
         advanceQueue();
       },
     });
+    placeCleanup = () => opened.release();
     setStatus('');
   } catch (e) {
+    opened?.release();
     setStatus(errMsg(e), 'error');
     advanceQueue();
   }
@@ -1101,7 +1120,7 @@ async function openDropped(src) {
   const vectorFiles = (idx) => {
     const paths = new Set(plan.styles); // SLD는 같이 넘겨서 열기 패널에서 고르게 한다
     for (const i of idx) for (const p of plan.vectors[i].paths) paths.add(p);
-    return [...paths].map((p) => ({ name: p, arrayBuffer: () => src.files.get(p).arrayBuffer() }));
+    return [...paths].map((p) => ({ name: p, arrayBuffer: () => src.files.get(p).arrayBuffer(), blob: src.files.get(p) }));
   };
   const run = async ({ tilesets, terrains = [], models, dems = [], vectors }) => {
     closePlace();
@@ -1370,4 +1389,32 @@ $('btn-shot').addEventListener('click', async () => {
 });
 
 // 시험·콘솔용
-window.gis = { viewer, layers, folders, openTilesFromFiles, startGlb, placeModel, startVector, startDem, startDemText, startDemFiles, startTerrainTiles, openDropped, highlighter, measure, pickWorld, showClickInfo, goHome, Cesium };
+// ---------------------------------------------------------------- 성능 모드 선택 칸
+const selPerf = $('sel-perf');
+for (const [v, t] of [['auto', '성능: 자동'], ['low', '성능: 저사양'], ['normal', '성능: 일반']]) {
+  const o = document.createElement('option');
+  o.value = v;
+  o.textContent = t;
+  selPerf.appendChild(o);
+}
+function showPerf() {
+  selPerf.value = perf.pref;
+  selPerf.options[0].textContent = `성능: 자동 (${perf.detectedLow ? '저사양' : '일반'})`;
+  selPerf.title = `${perf.reason}
+저사양: 선 부드럽게(MSAA) 끔 · 지형/3D 타일을 덜 자세히 불러옴 · 큰 지형 파일 상한 낮춤`;
+}
+function setPerf(pref) {
+  perf = resolvePerf(pref, readEnv());
+  savePref(perf.pref);
+  applyPerf();
+  showPerf();
+  setStatus(`성능 모드: ${perf.label} (${perf.reason})`);
+  return perf;
+}
+selPerf.addEventListener('change', () => {
+  setPerf(selPerf.value);
+  selPerf.blur();
+});
+showPerf();
+
+window.gis = { getPerf: () => perf, setPerf, viewer, layers, folders, openTilesFromFiles, startGlb, placeModel, startVector, startDem, startDemText, startDemFiles, startTerrainTiles, openDropped, highlighter, measure, pickWorld, showClickInfo, goHome, Cesium };

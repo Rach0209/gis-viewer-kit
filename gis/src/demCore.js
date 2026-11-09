@@ -8,6 +8,9 @@
 import proj4 from 'proj4';
 import { CRS_LIST, fromLonLat, isNearKorea } from '../../viewer/src/kit/crsList.js';
 
+/** 이보다 큰 격자는 브라우저 메모리가 부족해질 수 있어 거절한다 (1.2억 화소 = Float32 약 480 MB) */
+export const MAX_PIXELS = 120_000_000;
+
 /** 이 값이면 "값 없음" (nodata 선언값, NaN, 비정상적으로 작은 값) */
 export function isNoData(v, nodata) {
   return !Number.isFinite(v) || v < -1e10 || (nodata != null && v === nodata);

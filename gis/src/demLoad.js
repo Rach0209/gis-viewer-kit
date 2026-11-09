@@ -3,10 +3,9 @@
  * 결과는 demCore.js의 createSampler / tileHeights 로 바로 쓸 수 있는 모양이다.
  */
 import { fromArrayBuffer, fromBlob } from 'geotiff';
-import { crsFromGeoKeys, heightStats, lonLatExtent } from './demCore.js';
+import { MAX_PIXELS, crsFromGeoKeys, heightStats, lonLatExtent } from './demCore.js';
 
-/** 이보다 큰 격자는 브라우저 메모리가 부족해질 수 있어 거절한다 (1.2억 화소 = Float32 약 480 MB) */
-export const MAX_PIXELS = 120_000_000;
+export { MAX_PIXELS };
 
 /**
  * @param {Blob} file
@@ -17,7 +16,7 @@ export const MAX_PIXELS = 120_000_000;
  *   extent:number[]|null,
  * }>}
  */
-export async function readDemFile(file) {
+export async function readDemFile(file, { maxPixels = MAX_PIXELS, hint = '' } = {}) {
   let tiff;
   try {
     // 브라우저에서는 필요한 부분만 읽는 fromBlob, FileReader가 없는 환경(Node 시험)에서는 통째로
@@ -31,8 +30,8 @@ export async function readDemFile(file) {
   const bands = image.getSamplesPerPixel();
   const bits = image.getBitsPerSample?.(0) ?? 32;
   if (bands >= 3 && bits <= 8) throw new Error('색상 이미지(RGB)입니다. 높이 값이 든 지형(DEM) GeoTIFF를 여세요.');
-  if (width * height > MAX_PIXELS) {
-    throw new Error(`격자가 너무 큽니다 (${width.toLocaleString('ko-KR')}×${height.toLocaleString('ko-KR')} 화소). 쓸 지역만 잘라내거나 해상도를 줄인 파일을 쓰세요.`);
+  if (width * height > maxPixels) {
+    throw new Error(`격자가 너무 큽니다 (${width.toLocaleString('ko-KR')}×${height.toLocaleString('ko-KR')} 화소). 쓸 지역만 잘라내거나 해상도를 줄인 파일을 쓰세요.${hint}`);
   }
 
   let bbox;

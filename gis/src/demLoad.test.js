@@ -72,3 +72,12 @@ describe('readDemFile', () => {
     await expect(readDemFile(new Blob(['hello']))).rejects.toThrow(/GeoTIFF/);
   });
 });
+
+describe('readDemFile: 크기 상한', () => {
+  it('상한을 넘으면 거절하고 안내 문장을 덧붙인다', async () => {
+    const [x0, y0] = projectorFor('EPSG:5186')(127, 37.5);
+    const blob = makeTiff({ width: 4, height: 3, values: Array.from({ length: 12 }, (_, i) => i), x0, y0, resX: 30, resY: 30, projected: 5186 });
+    await expect(readDemFile(blob, { maxPixels: 10, hint: ' [안내]' })).rejects.toThrow(/격자가 너무 큽니다.*\[안내\]/);
+    expect((await readDemFile(blob, { maxPixels: 12 })).width).toBe(4);
+  });
+});

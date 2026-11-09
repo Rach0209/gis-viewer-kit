@@ -2,8 +2,10 @@
  * GeoJSON/SHP 열기 패널: 파일을 읽은 결과를 보여 주고, 인코딩·좌표계를 바꿔 가며 확인한 뒤 연다.
  * 한글이 깨져 보이거나 위치가 어긋나 보이면 여기서 고른다 (설정을 바꾸면 바로 다시 계산해서 미리 보여 준다).
  */
-import { CRS_CHOICES, buildCollection } from './vectorParse.js';
+import { CRS_LIST } from '../../viewer/src/kit/crsList.js';
 import { pickRule } from './sld.js';
+
+const CRS_CHOICES = CRS_LIST.map((c) => ({ code: c.code, label: c.label }));
 
 const ENCODING_CHOICES = [
   ['auto', '자동 판별'],
@@ -56,18 +58,24 @@ export function showVectorPanel(panel, items, { skipped = [], styles = [], onCon
   panel.append(el('div', 'sub', '한글이 깨져 보이거나 위치가 어긋나 보이면 아래에서 인코딩·좌표계를 고르세요.'));
   if (skipped.length) panel.append(el('div', 'warn', `건너뛴 파일: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? ' …' : ''}`));
 
-  const states = items.map((item) => ({ item, opts: { encoding: 'auto', crs: 'auto' }, result: null, styleIndex: null }));
+  const states = items.map((item) => ({ item, opts: { encoding: 'auto', crs: 'auto' }, result: null, styleIndex: null, pending: false }));
+  // 계산이 끝나지 않았거나 열 수 있는 게 없으면 "열기"를 잠근다
+  let okBtn = null;
+  let confirming = false;
+  const refreshOk = () => {
+    if (okBtn) okBtn.disabled = confirming || states.some((s) => s.pending) || !states.some((s) => s.result);
+  };
 
   for (const st of states) {
     const fs = el('fieldset');
-    const legend = el('legend', null, `${st.item.name} (${st.item.raw.kind === 'shp' ? 'SHP' : 'GeoJSON'})`);
+    const legend = el('legend', null, `${st.item.name} (${st.item.kind === 'shp' ? 'SHP' : 'GeoJSON'})`);
     fs.append(legend);
     const summary = el('div', 'sub');
     const form = el('div', 'form');
     const crsSel = select([['auto', '자동 (.prj / 추정)'], ...CRS_CHOICES.map((c) => [c.code, c.label])], 'auto');
     form.append(el('label', null, '좌표계'), crsSel);
     let encSel = null;
-    if (st.item.raw.kind === 'shp' && st.item.raw.dbfBuf) {
+    if (st.item.kind === 'shp' && st.item.hasDbf) {
       encSel = select(ENCODING_CHOICES, 'auto');
       form.append(el('label', null, '속성 인코딩'), encSel);
     }
@@ -105,21 +113,35 @@ export function showVectorPanel(panel, items, { skipped = [], styles = [], onCon
       return msgs;
     };
 
-    const recompute = () => {
+    // 계산은 워커가 하므로 기다리는 동안 화면은 그대로 움직인다. 설정을 연달아 바꾸면 마지막 것만 반영한다.
+    let latest = 0;
+    const recompute = async () => {
+      const mine = ++latest;
+      st.pending = true;
+      refreshOk();
+      summary.textContent = '계산 중…';
+      let result;
       try {
-        st.result = buildCollection(st.item.raw, st.opts);
+        result = await st.item.build(st.opts);
       } catch (e) {
+        if (mine !== latest) return;
+        st.pending = false;
         st.result = null;
         warns.replaceChildren(el('div', 'warn', e.message));
+        refreshOk();
         return;
       }
+      if (mine !== latest) return;
+      st.pending = false;
+      st.result = result;
+      refreshOk();
       const { info } = st.result;
       summary.textContent = `피처 ${info.count.toLocaleString('ko-KR')}개 · ${info.geometryTypes.join(', ') || '-'}`;
       detail.textContent =
         `좌표계: ${info.crs.label} (${CRS_SOURCE[info.crs.source] ?? info.crs.source})` +
         (info.center ? ` · 중심 경도 ${info.center.lon.toFixed(5)}, 위도 ${info.center.lat.toFixed(5)}` : '') +
         (info.encoding ? ` · 인코딩: ${info.encoding.encoding} (${ENCODING_SOURCE[info.encoding.source] ?? info.encoding.source})` : '');
-      sample.textContent = info.encoding || st.item.raw.kind === 'geojson' ? `속성 예: ${sampleText(info.sampleProperties)}` : '';
+      sample.textContent = info.encoding || st.item.kind === 'geojson' ? `속성 예: ${sampleText(info.sampleProperties)}` : '';
       if (st.styleIndex === null) {
         // 처음 한 번: 맞는 스타일이 있으면 자동으로 고른다
         st.styleIndex = autoStyleIndex();
@@ -145,14 +167,18 @@ export function showVectorPanel(panel, items, { skipped = [], styles = [], onCon
   const actions = el('div', 'actions');
   const ok = el('button', 'primary', '열기');
   ok.type = 'button';
+  okBtn = ok;
+  refreshOk();
   ok.addEventListener('click', async () => {
     const results = states.filter((s) => s.result).map((s) => ({ name: s.item.name, collection: s.result.collection, info: s.result.info, style: s.styleIndex >= 0 ? styles[s.styleIndex].style : null }));
     if (!results.length) return;
-    ok.disabled = true;
+    confirming = true;
+    refreshOk();
     try {
       await onConfirm(results);
     } finally {
-      ok.disabled = false;
+      confirming = false;
+      refreshOk();
     }
   });
   const cancel = el('button', null, '취소');

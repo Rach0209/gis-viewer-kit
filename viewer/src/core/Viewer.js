@@ -14,8 +14,10 @@ export class Viewer {
    * @param {Object} options
    * @param {HTMLElement} options.container - 렌더러의 canvas를 붙일 DOM 요소
    * @param {number} [options.background] - 배경색 (hex)
+   * @param {boolean} [options.antialias=true] - 선 부드럽게(안티앨리어싱). 렌더러를 만들 때만 정할 수 있다 (저사양 PC에서는 끈다)
+   * @param {number} [options.maxPixelRatio=2] - 고해상도 화면에서 쓸 화면 배율의 상한 (저사양 PC에서는 1)
    */
-  constructor({ container, background = 0x111318 }) {
+  constructor({ container, background = 0x111318, antialias = true, maxPixelRatio = 2 }) {
     if (!container) {
       throw new Error('Viewer requires a container element');
     }
@@ -38,14 +40,16 @@ export class Viewer {
     // preserveDrawingBuffer: true -- 스크린샷 저장(saveScreenshot)이 렌더 루프와 상관없는
     // 임의의 시점(버튼 클릭)에 canvas.toDataURL()을 호출하는데, 기본값(false)이면 브라우저가
     // 프레임을 화면에 표시한 직후 버퍼를 비워버릴 수 있어 검은 화면이 캡처될 수 있다.
+    this._antialias = antialias;
+    this._maxPixelRatio = maxPixelRatio;
     this._renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias,
       powerPreference: 'high-performance',
       preserveDrawingBuffer: true,
     });
     // 4K/레티나 디스플레이는 devicePixelRatio가 2~3이라, 그대로 쓰면 렌더링 부하가
     // 4~9배로 뛴다. 대부분 2배 이상에서는 체감 화질 차이가 크지 않아 2로 캡한다.
-    this._renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this._renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio));
     this._renderer.setSize(container.clientWidth, container.clientHeight);
     container.appendChild(this._renderer.domElement);
 
@@ -153,6 +157,18 @@ export class Viewer {
     }
     this._renderer.render(this._scene, this._camera);
     this._animationFrameId = requestAnimationFrame(() => this._tick());
+  }
+
+  /** 렌더러를 만들 때 정한 안티앨리어싱 (바꾸려면 다시 만들어야 한다) */
+  get antialias() {
+    return this._antialias;
+  }
+
+  /** 화면 배율 상한을 바꾼다 (바로 적용). 고해상도 화면에서 그리기 부담이 크게 달라진다. */
+  setMaxPixelRatio(ratio) {
+    this._maxPixelRatio = ratio;
+    this._renderer.setPixelRatio(Math.min(window.devicePixelRatio, ratio));
+    this._onResize();
   }
 
   _onResize() {

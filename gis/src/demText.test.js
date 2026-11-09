@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createMosaicSampler, createSampler } from './demCore.js';
-import { gridFromXyz, isAsciiGrid, parseAsciiGrid, parseXyz, readDemText } from './demText.js';
+import { gridFromXyz, isAsciiGrid, parseAsciiGrid, parseDemTextFile, parseXyz, readDemText } from './demText.js';
 
 const blob = (text, name = 'a.txt') => Object.assign(new Blob([text]), { name });
 
@@ -118,5 +118,81 @@ describe('readDemText', () => {
   it('ASCII 격자를 여러 개 한꺼번에 주면 오류', async () => {
     const g = 'ncols 1\nnrows 1\nxllcorner 0\nyllcorner 0\ncellsize 1\n5';
     await expect(readDemText([blob(g), blob(g)])).rejects.toThrow(/하나씩/);
+  });
+});
+
+// ---------------------------------------------------------------- 읽기 규칙 고정 (줄 단위 분리 + Number와 같은 결과)
+const referenceXyz = (text) => {
+  const out = { x: [], y: [], z: [], skipped: 0 };
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    const p = line.split(/[\s,;]+/);
+    const x = Number(p[0]);
+    const y = Number(p[1]);
+    const z = Number(p[2]);
+    if (p.length >= 3 && Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+      out.x.push(x);
+      out.y.push(y);
+      out.z.push(z);
+    } else out.skipped++;
+  }
+  return out;
+};
+
+describe('parseXyz: 읽기 규칙', () => {
+  const same = (text) => {
+    const a = parseXyz(text);
+    const b = referenceXyz(text);
+    expect(Array.from(a.x)).toEqual(b.x);
+    expect(Array.from(a.y)).toEqual(b.y);
+    expect(Array.from(a.z)).toEqual(b.z);
+    expect(a.skipped).toBe(b.skipped);
+  };
+  it('다양한 숫자 모양', () => {
+    same('1 2 3\n-1.5 +2.25 -0\n.5 5. 007\n1e3 2E-2 -3.5e+1\n123456789012345 0.1 0.7\n1234567890123456789 12345678901.23456789 1\n');
+  });
+  it('머리글·모자란 줄·글자 섞인 줄·여분 열', () => {
+    same('x y z\n1 2\n1 2 abc\nNaN 1 2\nInfinity 1 2\n1 2 3 4 5\n  \n\t\n1,2,3\n1;2;3\n 1 , 2 , 3 \n');
+  });
+  it('끝 줄 바꿈 없음, CRLF, 앞뒤 공백', () => {
+    same('1 2 3\r\n4 5 6\r\n7 8 9');
+    same('   1   2   3   \n\n\n  4 5 6');
+  });
+  it('실제 같은 좌표(소수 2자리)를 정확히 읽는다', () => {
+    const lines = [];
+    for (let i = 0; i < 500; i++) lines.push(`${(200305.31 + i * 90.01).toFixed(2)} ${(547459.91 - i * 90.01).toFixed(2)} ${(16.78 + i / 7).toFixed(2)}`);
+    same(lines.join('\n'));
+  });
+});
+
+describe('parseAsciiGrid: 큰 격자도 한 번 훑어 읽는다', () => {
+  it('값 사이 구분(공백·줄 바꿈·CRLF)과 음수·소수', () => {
+    const g = parseAsciiGrid('ncols 3\r\nnrows 2\r\nxllcorner 0\r\nyllcorner 0\r\ncellsize 10\r\nNODATA_value -9999\r\n1 2.5 -3\r\n  4   5\t6\r\n');
+    expect(Array.from(g.data)).toEqual([1, 2.5, -3, 4, 5, 6]);
+    expect(g.nodata).toBe(-9999);
+  });
+});
+
+describe('격자 크기 상한 (저사양 모드에서 낮아진다)', () => {
+  const pts = (w, h) => {
+    const x = [], y = [], z = [];
+    for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) { x.push(c * 10); y.push(r * 10); z.push(1); }
+    return { x, y, z };
+  };
+  it('XYZ 격자가 상한을 넘으면 거절하고 안내 문장을 덧붙인다', () => {
+    expect(() => gridFromXyz(pts(10, 10), { maxPixels: 50, hint: ' [안내]' })).toThrow(/격자가 너무 큽니다.*\[안내\]/);
+    expect(gridFromXyz(pts(10, 10), { maxPixels: 100 }).width).toBe(10);
+  });
+  it('ASCII 격자도 상한을 지킨다', () => {
+    const g = 'ncols 10\nnrows 10\nxllcorner 0\nyllcorner 0\ncellsize 1\n' + '1 '.repeat(100);
+    expect(() => parseAsciiGrid(g, { maxPixels: 50, hint: ' [안내]' })).toThrow(/\[안내\]/);
+    expect(parseAsciiGrid(g, { maxPixels: 100 }).data.length).toBe(100);
+  });
+  it('파일이 상한에 맞는 크기(상한 x 4바이트)를 넘으면 읽기 전에 거절한다', async () => {
+    const big = Object.assign(new Blob(['1 2 3\n'.repeat(100)]), { name: 'big.txt' }); // 600바이트
+    await expect(parseDemTextFile(big, { maxPixels: 100, hint: ' [안내]' })).rejects.toThrow(/big\.txt.*너무 큽니다.*\[안내\]/);
+    const ok = await parseDemTextFile(Object.assign(new Blob(['0 0 1\n10 0 2\n0 10 3\n10 10 4\n']), { name: 'ok.txt' }), { maxPixels: 100 });
+    expect(ok.grid.width).toBe(2);
   });
 });

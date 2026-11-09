@@ -33,6 +33,7 @@ import { getBackendTileset } from './backend.js';
 // `<script>` 번들(vite.lib.config.js)은 Java 서버 연결 코드를 빼고 빌드한다 (클라이언트 전용). 개발용 데모는 포함한다.
 const BACKEND_ENABLED = typeof __TVK_BACKEND__ !== 'undefined' ? __TVK_BACKEND__ : true;
 import { createKitUi } from './ui.js';
+import { currentPerf, readEnv, resolvePerf, savePref } from './perfMode.js';
 import { pickFolder, fromDropEvent, pickGlbFile, glbFromDropEvent } from './folderPicker.js';
 
 /**
@@ -75,6 +76,9 @@ export function createTileViewer(container, options = {}) {
     ...options,
   };
   const persistence = resolvePersistence(opts.persistence);
+  // 성능 모드: 사양이 낮은 PC에서는 선 부드럽게(안티앨리어싱)와 고해상도 배율을 줄이고 타일을 덜 자세히 불러온다.
+  // options.performance('auto'|'low'|'normal')로 정할 수 있고, 화면의 "성능" 선택은 저장되어 3D 뷰어와 GIS 작업실이 같이 쓴다.
+  let perf = opts.performance ? resolvePerf(opts.performance, readEnv()) : currentPerf();
 
   const listeners = new Map();
   const emit = (type, payload) => (listeners.get(type) ?? []).forEach((fn) => fn(payload));
@@ -114,6 +118,8 @@ export function createTileViewer(container, options = {}) {
     onScreenshot: () => api.saveScreenshot(),
     onToggleMinimap: (on) => api.setMinimapEnabled(on),
     minimapOn: opts.minimap,
+    onPerfChange: (pref) => api.setPerformance(pref),
+    perf,
     onToggleWalk: (on) => api.setTool(on ? 'walk' : null),
     onCompassDblClick: () => api.faceNorth(),
     onLayerVisible: (key, on) => api.setLayerVisible(key, on),
@@ -122,7 +128,7 @@ export function createTileViewer(container, options = {}) {
   });
   if (!opts.ui) ui.root.classList.add('tvk-no-ui');
 
-  const viewer = new Viewer({ container: ui.canvasHost });
+  const viewer = new Viewer({ container: ui.canvasHost, antialias: perf.antialias, maxPixelRatio: perf.maxPixelRatio });
   const layerManager = new LayerManager(viewer);
 
   /** @type {CameraRig|null} */
@@ -499,6 +505,7 @@ export function createTileViewer(container, options = {}) {
       time: new Date().toISOString(),
       userAgent: navigator.userAgent,
       devicePixelRatio: globalThis.devicePixelRatio,
+      performance: { pref: perf.pref, label: perf.label, antialias: viewer.antialias, maxPixelRatio: perf.maxPixelRatio, tileErrorTarget: layer?.getErrorTarget?.() ?? null },
       viewport: { w: ui.root.clientWidth, h: ui.root.clientHeight },
       webgl: {
         version: r?.capabilities?.isWebGL2 ? 2 : 1,
@@ -1151,6 +1158,7 @@ export function createTileViewer(container, options = {}) {
           placement: mode,
           origin: mode === 'geo' ? origin : undefined,
           errorTarget: profile.errorTarget,
+          errorScale: perf.tileQualityScale,
           enableFade: profile.enableFade ?? true,
           decoderBaseUrl: opts.decoderBaseUrl,
           plugins: src.plugins,
@@ -1351,6 +1359,25 @@ export function createTileViewer(container, options = {}) {
         }
         throw err;
       }
+    },
+
+    /** 지금 적용 중인 성능 설정 ({pref, lowEnd, antialias, maxPixelRatio, tileQualityScale, label, reason, ...}) */
+    getPerformance() {
+      return { ...perf };
+    },
+
+    /**
+     * 성능 모드를 바꾼다: 'auto'(이 PC 사양으로 판단) | 'low' | 'normal'. 선택은 저장된다.
+     * 화면 배율과 타일 품질은 바로 적용되고, 안티앨리어싱은 렌더러를 만들 때만 정할 수 있어서 새로고침 후 적용된다.
+     */
+    setPerformance(pref) {
+      perf = resolvePerf(pref, readEnv());
+      savePref(perf.pref);
+      viewer.setMaxPixelRatio(perf.maxPixelRatio);
+      layer?.setErrorScale?.(perf.tileQualityScale);
+      ui.setPerf(perf);
+      if (perf.antialias !== viewer.antialias) ui.setStatus('선 부드럽게(안티앨리어싱) 설정은 페이지를 새로고침하면 적용됩니다.');
+      return { ...perf };
     },
 
     /** 화면이 이상할 때 원인을 좁히기 위한 정보 (GPU, 카메라, 레이어, 배경 지도 상태). API 키는 들어 있지 않다. */

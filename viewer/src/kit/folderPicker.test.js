@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filesFromFileList, filesFromHandle, glbFromDropEvent } from './folderPicker.js';
+import { createGate, filesFromFileList, filesFromHandle, glbFromDropEvent } from './folderPicker.js';
 
 /** 가짜 폴더 핸들: entries()가 비동기 이터레이터를 준다. getFile()이 동시에 몇 개 불렸는지 추적한다. */
 function fakeDir(spec, tracker) {
@@ -98,5 +98,67 @@ describe('glbFromDropEvent', () => {
     expect(glbFromDropEvent(ev(item({ name: 'a.glb' }), item({ name: 'b.glb' })))).toBeNull();
     expect(glbFromDropEvent({ dataTransfer: { items: [] } })).toBeNull();
     expect(glbFromDropEvent({})).toBeNull();
+  });
+});
+
+describe('createGate', () => {
+  it('동시에 limit개까지만 실행하고, 끝나면 기다리던 것을 이어서 실행한다', async () => {
+    const gate = createGate(3);
+    let active = 0;
+    let max = 0;
+    const results = await Promise.all(
+      Array.from({ length: 20 }, (_, i) =>
+        gate(async () => {
+          active++;
+          max = Math.max(max, active);
+          await new Promise((r) => setTimeout(r, 2));
+          active--;
+          return i;
+        }),
+      ),
+    );
+    expect(results).toEqual(Array.from({ length: 20 }, (_, i) => i));
+    expect(max).toBe(3);
+  });
+
+  it('작업이 실패해도 자리를 돌려준다', async () => {
+    const gate = createGate(1);
+    await expect(gate(async () => Promise.reject(new Error('실패')))).rejects.toThrow('실패');
+    await expect(gate(async () => 'ok')).resolves.toBe('ok');
+  });
+});
+
+describe('filesFromHandle: 하위 폴더를 동시에 읽는다', () => {
+  /** 폴더 목록을 읽는 데 시간이 걸리는 가짜 폴더. 동시에 목록을 읽은 폴더 수를 센다. */
+  function slowTree(depth, fan, stats) {
+    return {
+      kind: 'directory',
+      async *entries() {
+        stats.dirInflight++;
+        stats.dirMax = Math.max(stats.dirMax, stats.dirInflight);
+        await new Promise((r) => setTimeout(r, 3));
+        stats.dirInflight--;
+        if (depth === 0) {
+          yield ['leaf.terrain', { kind: 'file', getFile: async () => ({ name: 'leaf.terrain' }) }];
+          return;
+        }
+        for (let i = 0; i < fan; i++) yield [`d${i}`, slowTree(depth - 1, fan, stats)];
+      },
+    };
+  }
+
+  it('수백 개의 하위 폴더를 하나씩이 아니라 여러 개 동시에 열되 상한(8)을 지킨다', async () => {
+    const stats = { dirInflight: 0, dirMax: 0 };
+    const out = await filesFromHandle(slowTree(2, 12, stats)); // 12 x 12 = 144 개의 끝 폴더
+    expect(out.size).toBe(144);
+    expect(stats.dirMax).toBeGreaterThan(1);
+    expect(stats.dirMax).toBeLessThanOrEqual(8);
+  });
+
+  it('병렬로 읽어도 결과 순서는 경로 순서로 늘 같다', async () => {
+    const stats = { dirInflight: 0, dirMax: 0 };
+    const out = await filesFromHandle(slowTree(2, 5, stats));
+    const keys = [...out.keys()];
+    expect(keys).toEqual([...keys].sort());
   });
 });

@@ -12,6 +12,7 @@ import { parseShp, parseDbf } from 'shpjs';
 import proj4 from 'proj4';
 import { iter } from 'but-unzip';
 import { CRS_LIST, getCrs, isNearKorea, isValidLonLat } from '../../viewer/src/kit/crsList.js';
+import { baseOf, extOf, isVectorFileName, stemOf } from './vectorNames.js';
 
 // ---------------------------------------------------------------- 인코딩
 /** .cpg 내용 → 'utf-8' | 'euc-kr' | 'windows-1252' | null(모름) */
@@ -43,17 +44,7 @@ export function detectEncoding(dbfBuf, cpgText) {
 }
 
 // ---------------------------------------------------------------- 파일 모으기
-const VECTOR_EXT = /\.(shp|dbf|prj|cpg|shx|geojson|json|zip|sld)$/i;
-export const isVectorFileName = (name) => VECTOR_EXT.test(name);
-
-const baseOf = (path) => path.split('/').pop();
-const extOf = (path) => (baseOf(path).includes('.') ? baseOf(path).split('.').pop().toLowerCase() : '');
-const stemOf = (path) => {
-  const b = baseOf(path);
-  const dot = b.lastIndexOf('.');
-  const dir = path.slice(0, path.length - b.length);
-  return dir + (dot < 0 ? b : b.slice(0, dot));
-};
+export { isVectorFileName };
 
 const toArrayBuffer = (u8) => u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
 
@@ -210,7 +201,16 @@ function resolveCrs(raw, bbox, choice) {
   const identity = (code, label, source) => ({ convert: (c) => c, code, label, source });
   const fromDef = (def, code, label, source) => {
     const t = proj4(def, 'WGS84');
-    return { convert: (c) => [...t.forward([c[0], c[1]]), ...c.slice(2)], code, label, source };
+    // 좌표마다 불리는 함수라 배열을 덜 만든다 (높이 같은 세 번째 값이 있을 때만 이어 붙인다)
+    return {
+      convert: (c) => {
+        const p = t.forward([c[0], c[1]]);
+        return c.length > 2 ? [p[0], p[1], ...c.slice(2)] : p;
+      },
+      code,
+      label,
+      source,
+    };
   };
   const fromCode = (code, source) => {
     if (code === 'EPSG:4326') return identity(code, getCrs(code).label, source);

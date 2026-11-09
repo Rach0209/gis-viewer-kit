@@ -21,17 +21,31 @@ export function supportsDirectoryPicker() {
   return typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function' && window.isSecureContext;
 }
 
-/** items를 limit개씩 동시에 처리한다. 하나라도 실패하면 전체가 실패한다. */
-async function mapLimit(items, limit, fn) {
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) {
-      const i = next++;
-      await fn(items[i], i);
+/** 폴더 목록을 동시에 몇 개까지 읽을지 (파일 열기와 별개의 상한) */
+const DIR_CONCURRENCY = 8;
+
+/**
+ * 동시에 limit개까지만 실행시키는 문. gate(fn)은 자리가 날 때까지 기다렸다가 fn을 실행하고 그 결과를 돌려준다.
+ * 폴더를 통째로 읽을 때, 하위 폴더를 하나씩 차례로 읽지 않고 한꺼번에 펼치면서도 브라우저에 한 번에 보내는 요청 수는 제한한다.
+ */
+export function createGate(limit) {
+  let active = 0;
+  const waiting = [];
+  return async (fn) => {
+    if (active >= limit) await new Promise((resolve) => waiting.push(resolve));
+    else active++;
+    try {
+      return await fn();
+    } finally {
+      const next = waiting.shift();
+      if (next) next(); // 자리를 기다리던 쪽에 넘겨준다 (active는 그대로)
+      else active--;
     }
   };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
+
+/** 한 번 훑는 동안 같이 쓰는 문들: 파일 열기, 폴더 목록 읽기 */
+const makeGates = () => ({ file: createGate(READ_CONCURRENCY), dir: createGate(DIR_CONCURRENCY) });
 
 /** onProgress를 일정 간격으로만 부르는 보고 함수. 마지막에 done()으로 정확한 값을 한 번 더 보낸다. */
 function makeReporter(onProgress, intervalMs = 80) {
@@ -50,26 +64,44 @@ function makeReporter(onProgress, intervalMs = 80) {
   };
 }
 
+/** 병렬로 읽으면 들어온 순서가 매번 달라서, 경로 순으로 다시 늘어놓는다 (같은 폴더는 늘 같은 순서) */
+function sortByPath(map) {
+  const entries = [...map].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  map.clear();
+  for (const [k, v] of entries) map.set(k, v);
+  return map;
+}
+
 /**
- * FileSystemDirectoryHandle 아래의 모든 파일을 읽는다.
+ * FileSystemDirectoryHandle 아래의 모든 파일을 읽는다. 하위 폴더도 동시에 펼친다.
  * @param {FileSystemDirectoryHandle} dirHandle
  * @param {string} [prefix]
  * @param {Map<string, File>} [out]
  * @param {(count:number)=>void} [report]
  */
 export async function filesFromHandle(dirHandle, prefix = '', out = new Map(), report) {
+  await readHandle(dirHandle, prefix, out, report, makeGates());
+  return sortByPath(out);
+}
+
+async function readHandle(dirHandle, prefix, out, report, gates) {
   const files = [];
   const dirs = [];
-  for await (const [name, handle] of dirHandle.entries()) {
-    (handle.kind === 'file' ? files : dirs).push([name, handle]);
-  }
-  await mapLimit(files, READ_CONCURRENCY, async ([name, handle]) => {
-    out.set(prefix + name, await handle.getFile());
-    report?.(out.size);
+  await gates.dir(async () => {
+    for await (const [name, handle] of dirHandle.entries()) {
+      (handle.kind === 'file' ? files : dirs).push([name, handle]);
+    }
   });
-  for (const [name, handle] of dirs) {
-    await filesFromHandle(handle, `${prefix}${name}/`, out, report);
-  }
+  // 이 폴더의 파일과 하위 폴더를 한꺼번에 진행한다 (하위 폴더가 수천 개인 지형 타일 폴더에서 특히 빠르다)
+  await Promise.all([
+    ...files.map(([name, handle]) =>
+      gates.file(async () => {
+        out.set(prefix + name, await handle.getFile());
+        report?.(out.size);
+      }),
+    ),
+    ...dirs.map(([name, handle]) => readHandle(handle, `${prefix}${name}/`, out, report, gates)),
+  ]);
   return out;
 }
 
@@ -187,16 +219,21 @@ function readAllEntries(reader) {
   });
 }
 
-async function walkEntries(entries, prefix, out, report) {
+async function walkEntries(entries, prefix, out, report, gates = makeGates()) {
   const files = entries.filter((e) => e.isFile);
   const dirs = entries.filter((e) => e.isDirectory);
-  await mapLimit(files, READ_CONCURRENCY, async (entry) => {
-    out.set(prefix + entry.name, await new Promise((res, rej) => entry.file(res, rej)));
-    report?.(out.size);
-  });
-  for (const dir of dirs) {
-    await walkEntries(await readAllEntries(dir.createReader()), `${prefix}${dir.name}/`, out, report);
-  }
+  await Promise.all([
+    ...files.map((entry) =>
+      gates.file(async () => {
+        out.set(prefix + entry.name, await new Promise((res, rej) => entry.file(res, rej)));
+        report?.(out.size);
+      }),
+    ),
+    ...dirs.map(async (dir) => {
+      const children = await gates.dir(() => readAllEntries(dir.createReader()));
+      await walkEntries(children, `${prefix}${dir.name}/`, out, report, gates);
+    }),
+  ]);
 }
 
 /**
@@ -222,6 +259,7 @@ export async function allFromDropEvent(event, hooks = {}) {
       else if (file) out.set(file.name, file);
     }
   }
+  sortByPath(out);
   r.done(out.size);
   return { files: out, name: single ? entries[0].entry.name : (entries[0]?.file?.name ?? ''), singleFolder: !!single };
 }
@@ -240,6 +278,7 @@ export async function fromDropEvent(event, hooks = {}) {
   const out = new Map();
   const r = makeReporter(hooks.onProgress);
   await walkEntries(await readAllEntries(entry.createReader()), '', out, r.report);
+  sortByPath(out);
   r.done(out.size);
   return { kind: 'files', files: out, name: entry.name };
 }

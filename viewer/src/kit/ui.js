@@ -18,6 +18,7 @@ const CSS = `
 .tvk-left{pointer-events:none}
 .tvk-left>*{pointer-events:auto}
 .tvk-toolbar{display:flex;gap:6px;flex-wrap:wrap}
+.tvk-perf{padding:4px 6px;background:rgba(20,22,26,.92);color:inherit;border:1px solid rgba(255,255,255,.2);border-radius:4px;font:inherit;font-size:12px}
 .tvk-layers{width:260px;max-width:100%;padding:8px 12px 10px;background:rgba(20,22,26,.92);border:1px solid rgba(255,255,255,.2);border-radius:4px}
 .tvk-layers h4{margin:0 0 4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#7fd3de;font-weight:600}
 .tvk-layers label{display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer}
@@ -209,10 +210,32 @@ export function createKitUi(container, handlers) {
   }, false);
   buttons.edit.hidden = true;
   buttons.edit.title = '배치한 모델의 위치·높이·각도·크기를 고칩니다';
+  // 성능 모드 선택: 자동(이 PC 사양으로 판단) / 저사양 / 일반. 저장되어 GIS 작업실과 공유한다.
+  const perfSel = document.createElement('select');
+  perfSel.className = 'tvk-perf';
+  perfSel.setAttribute('aria-label', '성능 모드');
+  for (const [v, t] of [['auto', '성능: 자동'], ['low', '성능: 저사양'], ['normal', '성능: 일반']]) {
+    const o = document.createElement('option');
+    o.value = v;
+    o.textContent = t;
+    perfSel.appendChild(o);
+  }
+  perfSel.addEventListener('change', () => {
+    handlers.onPerfChange?.(perfSel.value);
+    perfSel.blur();
+  });
+  const showPerf = (p) => {
+    perfSel.value = p.pref;
+    perfSel.options[0].textContent = `성능: 자동 (${p.detectedLow ? '저사양' : '일반'})`;
+    perfSel.title = `${p.reason}
+저사양: 선 부드럽게 끔 · 화면 배율 1배 · 3D 타일을 덜 자세히 불러옴 · 큰 지형 파일 상한 낮춤`;
+  };
+  if (handlers.perf) showPerf(handlers.perf);
+  else perfSel.hidden = true;
   // 순서는 GIS 페이지(gis/)와 비슷하게: 열기 -> 배경 지도(레이어) -> 재기 -> 처음 시점 -> 스크린샷, 그 뒤에 이 페이지에만 있는 것들
   toolbar.append(
     buttons.layers, buttons.measure, buttons.clear, buttons.reset, buttons.shot,
-    buttons.annotate, buttons.clearAnnotations, buttons.edit, buttons.walk, buttons.minimap,
+    buttons.annotate, buttons.clearAnnotations, buttons.edit, buttons.walk, buttons.minimap, perfSel,
   );
 
   // ---- 레이어 패널: 타일셋 / 배경 지도 / 메모 표시 켜고 끄기 + 배경 지도 설정 ----
@@ -900,6 +923,9 @@ export function createKitUi(container, handlers) {
     },
     setAnnotatePressed(on) {
       buttons.annotate.setAttribute('aria-pressed', String(on));
+    },
+    setPerf(p) {
+      showPerf(p);
     },
     setMinimapPressed(on) {
       buttons.minimap.setAttribute('aria-pressed', String(on));

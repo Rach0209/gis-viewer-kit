@@ -56,6 +56,7 @@ export class Tiles3DLayer extends LayerBase {
     placement = 'model',
     origin,
     errorTarget,
+    errorScale = 1,
     enableFade = true,
     decoderBaseUrl = '/',
     plugins = [],
@@ -70,6 +71,7 @@ export class Tiles3DLayer extends LayerBase {
     this._placement = placement;
     this._origin = origin;
     this._errorTarget = errorTarget;
+    this._errorScale = errorScale;
     this._enableFade = enableFade;
     /** @type {import('3d-tiles-renderer').TilesRenderer|null} */
     this._tiles = null;
@@ -98,6 +100,9 @@ export class Tiles3DLayer extends LayerBase {
     if (this._errorTarget != null) {
       tiles.errorTarget = this._errorTarget;
     }
+    // 화면 오차 기준(px)을 키울수록 타일을 덜 자세히 불러와 가볍다 (저사양 모드). 기준값은 이때의 값이다.
+    this._errorBase = tiles.errorTarget;
+    tiles.errorTarget = this._errorBase * this._errorScale;
 
     // 실제 현장 스캔 데이터(2026-08-05 확인)는 glTF 콘텐츠에 KHR_draco_mesh_compression
     // (지오메트리)과 KHR_texture_basisu(KTX2, 텍스처)를 필수 확장으로 사용한다.
@@ -196,6 +201,17 @@ export class Tiles3DLayer extends LayerBase {
    * group.matrix가 항등행렬이라 이 보정이 아무 효과가 없다.
    * @returns {import('three').Box3|null}
    */
+  /** 지금 쓰는 화면 오차 기준(px). 저사양 모드에서는 기본값보다 크다 */
+  getErrorTarget() {
+    return this._tiles ? this._tiles.errorTarget : null;
+  }
+
+  /** 타일 품질 기준을 바꾼다 (저사양 모드 전환). 1이 기본, 클수록 덜 자세히 불러와 가볍다. */
+  setErrorScale(scale) {
+    this._errorScale = scale;
+    if (this._tiles) this._tiles.errorTarget = this._errorBase * scale;
+  }
+
   getBoundingBox() {
     if (!this._tiles) return null;
     const box = new THREE.Box3();
