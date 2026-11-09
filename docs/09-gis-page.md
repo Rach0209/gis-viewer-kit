@@ -75,6 +75,7 @@ three.js 뷰어와 **같은 순수 계산 모듈을 공유**한다 (`viewer/src/
 | `modelEdit.js` (+테스트) | 모델 편집의 순수 계산: 동서남북 m 이동 → 경위도, 각도·크기·위도 정리와 검증. Cesium 비의존 |
 | `modelEditUi.js` | 모델 편집 패널(DOM) |
 | `modelPlace.js` | glb의 위치·방향·크기·피벗 → Cesium `modelMatrix`, 모델 로딩 |
+| `mouseScheme.js` (+테스트) | Cesium 마우스 조작을 3D 뷰어와 같게 바꾸는 설정과 안내 문장 |
 | `work/` | 무거운 읽기를 웹 워커로 돌리는 곳: `pool.js`(워커 풀, `lease`로 같은 워커에 붙이기, 시험 있음), `client.js`(화면이 쓰는 입구: `readDemTiff`, `readDemTextParallel`, `openVectorFiles`), `tasks.js`·`vectorJobs.js`(워커 안에서 도는 작업), `parse.worker.js`(진입점). 워커가 없는 환경(시험)에서는 같은 코드를 그 자리에서 돈다 |
 | `vectorNames.js` (+테스트) | 벡터 파일 이름 규칙과 "어떻게 묶어 읽을지" 계획(`planSources`). 무거운 라이브러리를 끌어오지 않는 가벼운 파일 |
 | `vectorParse.js` (+테스트) | GeoJSON/SHP/ZIP 읽기, 인코딩 판별, 좌표계 판단·변환(WGS84로). Cesium 비의존. `shpjs`(parseShp/parseDbf), `proj4`, `but-unzip` |
@@ -88,6 +89,7 @@ three.js 뷰어와 **같은 순수 계산 모듈을 공유**한다 (`viewer/src/
 - glb 방향 규칙: `forwardAxis`를 X로 주어 Cesium의 "앞쪽 +Z → +X" 보정을 빼고, 위쪽 축 보정만 남긴다. 그러면 three.js 뷰어와 같은 규칙(Y위: x=동, -z=북 / Z위: x=동, y=북, 방향은 시계 방향)이 된다.
 - `viewer.zoomTo`는 glb 모델(Model)을 지원하지 않아 경계 구로 직접 카메라를 옮긴다.
 - **읽기는 웹 워커에서 한다.** GeoTIFF·글자 DEM·SHP/ZIP/GeoJSON 읽기는 `work/`의 워커 풀이 맡아서 화면이 멈추지 않고, 파일/묶음마다 다른 워커가 동시에 읽는다(워커 수 = 코어 수 − 1, 최대 4). 읽은 SHP 원본은 워커에 두고 화면에는 번호만 주며(`lease`), 인코딩·좌표계를 바꾸면 워커가 다시 계산한다. 그 덕에 shpjs·geotiff·ZIP은 화면 번들이 아니라 워커 번들에만 들어간다. Cesium이 지도에 올리는 부분(엔티티 만들기)은 화면 스레드에서 해야 해서 워커로 옮길 수 없다.
+- **마우스 조작은 3D 뷰어(지도 모드)와 같다:** 좌 드래그 이동, 우 드래그 회전(기울기·방향), 휠 확대/축소, 휠 누르고 드래그 확대/축소, Ctrl+좌 드래그 회전(터치패드용). Cesium 기본은 우 드래그가 확대/축소, 휠 누르기가 회전이라 `mouseScheme.js`가 바꾼다(시험 있음). 제자리 우클릭은 그대로 "오른쪽 클릭"이라 거리·면적 재기의 끝내기에 쓰인다. 지도 오른쪽 아래에 안내 문장이 보인다.
 - **성능 모드(저사양 PC).** 툴바의 `성능` 선택(자동/저사양/일반, 3D 뷰어와 같은 저장값 `gis-viewer-kit:perf`를 공유). `자동`은 코어 4개 이하 또는 메모리 4GB 이하를 저사양으로 본다. 저사양이면 Cesium MSAA를 1로(끔), 지형·3D Tiles의 화면 오차 기준을 1.5배(덜 자세히)로 하고, 지형(DEM) 격자 상한을 1.2억 화소에서 4천만 화소로 낮춘다(넘으면 모드를 바꿀 수 있다고 안내). 바로 적용된다. 판단·설정은 `viewer/src/kit/perfMode.js`(순수 함수, 시험 있음).
 - 확인용 브라우저 창이 가려지면 Cesium 렌더링이 느려서(프레임이 드물게 그려짐) 시험 때는 프레임을 직접 그려 가며 확인했다.
 

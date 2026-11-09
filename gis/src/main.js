@@ -11,6 +11,7 @@ import { buildModelMatrix, createModel } from './modelPlace.js';
 import { nudgeLonLat, pickEditable, sanitizeEdit } from './modelEdit.js';
 import { showEditPanel } from './modelEditUi.js';
 import { isVectorFileName } from './vectorNames.js';
+import { MOUSE_HINT, applyMouseScheme } from './mouseScheme.js';
 import { currentPerf, demLimitHint, readEnv, resolvePerf, savePref } from '../../viewer/src/kit/perfMode.js';
 import { openVectorFiles, readDemTextParallel, readDemTiff } from './work/client.js';
 import { applyStyle, createVectorDataSource, entityProperties, setRuleVisible, updateScale } from './vectorLayer.js';
@@ -76,6 +77,9 @@ const viewer = new Cesium.Viewer('cesium', {
   selectionIndicator: false,
 });
 viewer.scene.globe.depthTestAgainstTerrain = true;
+// 마우스 조작을 3D 뷰어와 같게: 좌 드래그 이동, 우 드래그 회전, 휠 확대/축소 (Cesium 기본은 우 드래그가 확대/축소, 휠 누르기가 회전)
+applyMouseScheme(Cesium, viewer.scene.screenSpaceCameraController);
+$('mousehint').textContent = MOUSE_HINT;
 
 const folders = createVirtualFolders();
 installLocalFileLoader(Cesium, folders);
