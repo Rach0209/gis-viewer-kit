@@ -2,6 +2,9 @@
  * 여러 종류가 섞여 있을 때 "무엇을 열까요?" 체크 목록. DOM만 다루고 Cesium은 모른다.
  */
 
+import { explainSkipped } from './diagnose.js';
+import { problemNode } from './diagnoseUi.js';
+
 function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -46,8 +49,9 @@ export function showDropChoices(panel, plan, o) {
 
   const extra = [];
   if (plan.styles.length) extra.push(`SLD 스타일 ${plan.styles.length}개는 고른 벡터에 같이 쓸 수 있습니다.`);
-  if (plan.ignored.length) extra.push(`건너뜀: 열 수 없는 파일 ${plan.ignored.length}개 (${plan.ignored.slice(0, 3).join(', ')}${plan.ignored.length > 3 ? ' …' : ''})`);
   for (const t of extra) panel.append(el('div', 'sub', t));
+  // 건너뛴 파일: 이유와 해결 방법이 있는 것은 안내로, 보조 파일(.sbn 등)은 한 줄로
+  for (const p of explainSkipped(plan.ignored)) panel.append(problemNode(p));
 
   const actions = el('div', 'actions');
   const open = el('button', 'primary', '선택한 것 열기');

@@ -28,7 +28,12 @@ import { showDemPanel } from './demUi.js';
 import { openTerrainTiles } from './terrainTiles.js';
 import { terrainTilesInfoRows } from './terrainTilesCore.js';
 import { classifyDrop, itemCount, kindCount } from './dropClassify.js';
+import { explainNoItems, explainSkipped, problem } from './diagnose.js';
+import { showProblemPanel } from './diagnoseUi.js';
 import { showDropChoices } from './dropUi.js';
+import { geometryBounds } from './attrTable.js';
+import { POINT_STYLES, hasPointGeometry, normalizePointStyle, pointStyleSpec, savePointStyle } from './pointStyles.js';
+import { showAttrTable } from './attrUi.js';
 import { createHighlighter } from './highlight.js';
 import { createMeasure } from './measure.js';
 import { fitTopDown, freeRect } from './fitView.js';
@@ -186,7 +191,12 @@ function renderLayers(list) {
     name.title = l.name;
     row.append(cb, name, button('이동', () => layers.zoomTo(l.id), 'small'));
     if (l.kind !== 'vector') row.append(button('정보', () => showLayerInfo(l.id), 'small'));
-    if (l.kind === 'vector') row.append(button('저장', () => openExport(l.id), 'small'));
+    if (l.kind === 'vector') {
+      const tb = button('속성표', () => openTable(l.id), 'small');
+      tb.title = '이 레이어의 속성을 표로 봅니다 (정렬·검색·열 요약, 행을 누르면 지도에서 그 피처로 이동)';
+      tb.setAttribute('aria-pressed', String(attrTable?.layerId === l.id));
+      row.append(tb, button('저장', () => openExport(l.id), 'small'));
+    }
     if (l.kind === 'model') row.append(button('편집', () => openEdit(l.id), 'small'));
     if (l.kind === 'terrain') row.append(shadeToggle(l), exaggerationSelect(l));
     if (l.kind === 'vector') {
@@ -213,60 +223,108 @@ function renderLayers(list) {
       layers.remove(l.id);
     }, 'small'));
     listEl.appendChild(row);
-    if (l.kind === 'vector' && l.meta?.hasHeights) listEl.appendChild(heightToggle(l)); // 한 줄이 이미 꽉 차서 아래에 따로 둔다
+    if (l.kind === 'vector') {
+      const opts = layerOptionsRow(l); // 한 줄이 이미 꽉 차서 아래에 따로 둔다
+      if (opts) listEl.appendChild(opts);
+    }
     if (memoOpen.has(l.id)) listEl.appendChild(memoEl(l, memoBtn));
     if (l.style && legendOpen.has(l.id)) listEl.appendChild(legendEl(l));
   }
 }
 /**
- * 높이가 든 벡터 레이어 줄의 "높이" 토글: 끄면 지면에 붙이고, 켜면 파일의 높이대로 그린다(+보정 m).
- * 원본 자료(layer.data)는 높이를 그대로 갖고 있어서, 바꿀 때마다 지도 위 도형만 다시 만들어 바꿔 끼운다.
+ * 벡터 레이어 줄 아래의 표시 옵션 줄: 점 모양(점이 있는 레이어), "파일의 높이 사용"+보정(높이가 든 레이어).
+ * 원본 자료(layer.data)는 높이 등을 그대로 갖고 있어서, 바꿀 때마다 지도 위 도형만 다시 만들어 바꿔 끼운다.
+ * 옵션이 하나도 없으면 null.
  */
-function heightToggle(l) {
+function layerOptionsRow(l) {
+  const hasPoints = hasPointGeometry(l.meta?.geometryTypes);
+  const hasH = !!l.meta?.hasHeights;
+  if (!hasPoints && !hasH) return null;
   const box = el('div', 'hrow');
-  box.style.cssText = 'display:flex;align-items:center;gap:6px;padding:0 0 3px 19px;font-size:12px;flex-wrap:wrap';
-  box.title = '켜면 파일에 든 높이대로 그리고(지면에 붙이지 않음), 끄면 모두 지면에 붙입니다. 보정(m)은 해수면 기준 표고를 지도의 타원체고에 맞출 때 더하는 값입니다 (한국 약 25~30 m).';
-  const label = el('label');
-  label.style.cssText = 'display:flex;align-items:center;gap:4px;cursor:pointer';
-  const cb = document.createElement('input');
-  cb.type = 'checkbox';
-  cb.checked = !!l.meta.useHeights;
-  cb.setAttribute('aria-label', `${l.name} 파일의 높이 사용`);
-  label.append(cb, '파일의 높이 사용 (끄면 지면에 붙임)');
-  const offLabel = el('label');
-  offLabel.style.cssText = 'display:flex;align-items:center;gap:3px';
-  const off = document.createElement('input');
-  off.type = 'number';
-  off.step = 'any';
-  off.value = String(l.meta.heightOffset ?? 0);
-  off.style.cssText = 'width:56px;padding:0 2px;font-size:12px';
-  off.setAttribute('aria-label', `${l.name} 높이 보정(m)`);
-  offLabel.append('보정', off, 'm');
-  offLabel.hidden = !cb.checked;
-  const apply = () => {
-    cb.disabled = true;
-    off.disabled = true;
-    return applyLayerHeights(l.id, cb.checked, Number(off.value) || 0);
-  };
-  cb.addEventListener('change', () => {
+  box.style.cssText = 'display:flex;align-items:center;gap:4px 12px;padding:0 0 3px 19px;font-size:12px;flex-wrap:wrap';
+  const controls = [];
+  const busy = (on) => controls.forEach((c) => (c.disabled = on));
+
+  let pointSel = null;
+  if (hasPoints) {
+    const label = el('label');
+    label.style.cssText = 'display:flex;align-items:center;gap:4px';
+    pointSel = document.createElement('select');
+    pointSel.style.cssText = 'padding:0 2px;font-size:12px';
+    pointSel.setAttribute('aria-label', `${l.name} 점 모양`);
+    for (const p of POINT_STYLES) {
+      const o = document.createElement('option');
+      o.value = p.id;
+      o.textContent = p.label;
+      pointSel.appendChild(o);
+    }
+    pointSel.value = normalizePointStyle(l.meta.pointStyle);
+    label.append('점 모양', pointSel);
+    box.append(label);
+    controls.push(pointSel);
+  }
+
+  let cb = null;
+  let off = null;
+  if (hasH) {
+    const label = el('label');
+    label.style.cssText = 'display:flex;align-items:center;gap:4px;cursor:pointer';
+    label.title = '켜면 파일에 든 높이대로 그리고(지면에 붙이지 않음), 끄면 모두 지면에 붙입니다. 보정(m)은 해수면 기준 표고를 지도의 타원체고에 맞출 때 더하는 값입니다 (한국 약 25~30 m).';
+    cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!l.meta.useHeights;
+    cb.setAttribute('aria-label', `${l.name} 파일의 높이 사용`);
+    label.append(cb, '파일의 높이 사용 (끄면 지면에 붙임)');
+    const offLabel = el('label');
+    offLabel.style.cssText = 'display:flex;align-items:center;gap:3px';
+    off = document.createElement('input');
+    off.type = 'number';
+    off.step = 'any';
+    off.value = String(l.meta.heightOffset ?? 0);
+    off.style.cssText = 'width:56px;padding:0 2px;font-size:12px';
+    off.setAttribute('aria-label', `${l.name} 높이 보정(m)`);
+    offLabel.append('보정', off, 'm');
     offLabel.hidden = !cb.checked;
-    apply();
+    controls.push(cb, off);
+    box.append(label, offLabel);
+    cb.addEventListener('change', () => {
+      offLabel.hidden = !cb.checked;
+      busy(true);
+      rebuildVectorLayer(l.id, { useHeights: cb.checked, heightOffset: Number(off.value) || 0 });
+    });
+    off.addEventListener('change', () => {
+      if (!cb.checked) return;
+      busy(true);
+      rebuildVectorLayer(l.id, { useHeights: true, heightOffset: Number(off.value) || 0 });
+    });
+  }
+  pointSel?.addEventListener('change', () => {
+    busy(true);
+    savePointStyle(pointSel.value); // 다음에 열 때의 기본 모양으로 기억
+    rebuildVectorLayer(l.id, { pointStyle: pointSel.value });
   });
-  off.addEventListener('change', () => {
-    if (cb.checked) apply();
-  });
-  box.append(label, offLabel);
   return box;
 }
 
-const heightBusy = new Set(); // 도형을 다시 만드는 중인 레이어 id
-async function applyLayerHeights(layerId, useHeights, heightOffset) {
+const rebuildBusy = new Set(); // 도형을 다시 만드는 중인 레이어 id
+/**
+ * 벡터 레이어의 지도 위 도형을 새 옵션으로 다시 만들어 바꿔 끼운다 (켜기/끄기·메모·SLD 스타일·꺼 둔 규칙은 유지).
+ * @param {string} layerId
+ * @param {{useHeights?:boolean, heightOffset?:number, pointStyle?:string}} patch 바꿀 옵션 (나머지는 지금 값 그대로)
+ */
+async function rebuildVectorLayer(layerId, patch) {
   const layer = layers.get(layerId);
-  if (!layer?.data || heightBusy.has(layerId)) return;
-  heightBusy.add(layerId);
+  if (!layer?.data || rebuildBusy.has(layerId)) return;
+  rebuildBusy.add(layerId);
   setStatus('도형을 다시 만드는 중…', 'busy');
   try {
-    const ds = await createVectorDataSource(layer.data, { name: layer.name, color: layer.object.__baseColor, useHeights, heightOffset });
+    const opts = {
+      useHeights: !!layer.meta.useHeights,
+      heightOffset: layer.meta.heightOffset ?? 0,
+      pointStyle: normalizePointStyle(layer.meta.pointStyle),
+      ...patch,
+    };
+    const ds = await createVectorDataSource(layer.data, { name: layer.name, color: layer.object.__baseColor, ...opts });
     const style = layer.style ? restyle(ds, layer.style, layer.data) : null; // 지도에 올리기 전에 칠해야 빠르다
     await viewer.dataSources.add(ds);
     const now = layers.get(layerId);
@@ -274,16 +332,74 @@ async function applyLayerHeights(layerId, useHeights, heightOffset) {
       viewer.dataSources.remove(ds, true); // 그사이 레이어를 지웠다
       return;
     }
-    layers.replaceObject(layerId, ds, { meta: { ...now.meta, useHeights, heightOffset }, style });
+    layers.replaceObject(layerId, ds, { meta: { ...now.meta, ...opts }, style });
     if (style?.hasScale) updateScaleAll();
-    setStatus(useHeights ? `파일의 높이대로 그립니다${heightOffset ? ` (보정 ${heightOffset > 0 ? '+' : ''}${heightOffset} m)` : ''}.` : '지면에 붙여 그립니다.');
+    if ('pointStyle' in patch) setStatus(`점 모양: ${pointStyleSpec(opts.pointStyle).label}`);
+    else if (opts.useHeights) setStatus(`파일의 높이대로 그립니다${opts.heightOffset ? ` (보정 ${opts.heightOffset > 0 ? '+' : ''}${opts.heightOffset} m)` : ''}.`);
+    else setStatus('지면에 붙여 그립니다.');
   } catch (e) {
     setStatus(errMsg(e), 'error');
-    layers.refresh(); // 토글을 원래 상태로 되돌린다
+    layers.refresh(); // 선택칸을 원래 상태로 되돌린다
   } finally {
-    heightBusy.delete(layerId);
+    rebuildBusy.delete(layerId);
   }
 }
+
+// ---------------------------------------------------------------- 속성 표
+/** 지금 열린 속성 표: { layerId, ui } (한 번에 하나) */
+let attrTable = null;
+const attrEl = $('attr');
+
+function closeTable() {
+  attrTable?.ui?.close(); // 닫히면서 onClose 가 attrTable 과 강조를 정리한다
+}
+
+/** 속성 표에서 고른 피처로 지도를 옮기고 그 도형을 강조한다 */
+function selectTableRow(layerId, feature) {
+  const layer = layers.get(layerId);
+  if (!layer) return;
+  const b = geometryBounds(feature.geometry);
+  if (!b) {
+    highlighter.clear();
+    setStatus('이 피처는 도형이 없어 지도에 나오지 않습니다.');
+    return;
+  }
+  highlighter.showGeometry(feature.geometry, layer.object);
+  const [w, s, e, n] = b;
+  if (e - w < 1e-7 && n - s < 1e-7) {
+    viewer.camera.flyTo({ destination: Cesium.Cartesian3.fromDegrees(w, s, 800), orientation: { heading: 0, pitch: Cesium.Math.toRadians(-90) }, duration: 0.6 });
+  } else {
+    const padX = Math.max((e - w) * 0.3, 0.0004);
+    const padY = Math.max((n - s) * 0.3, 0.0004);
+    viewer.camera.flyTo({ destination: Cesium.Rectangle.fromDegrees(w - padX, s - padY, e + padX, n + padY), duration: 0.6 });
+  }
+}
+
+/** 벡터 레이어의 속성 표를 연다 (같은 레이어의 버튼을 다시 누르면 닫는다) */
+function openTable(layerId) {
+  const layer = layers.get(layerId);
+  if (!layer?.data) return;
+  const again = attrTable?.layerId === layerId;
+  closeTable();
+  if (again) return;
+  const entry = { layerId, ui: null };
+  attrTable = entry;
+  entry.ui = showAttrTable(attrEl, {
+    name: layer.name,
+    collection: layer.data,
+    onSelect: (_row, feature) => selectTableRow(layerId, feature),
+    onNotice: (msg) => setStatus(msg),
+    onClose: () => {
+      if (attrTable === entry) attrTable = null;
+      highlighter.clear();
+      layers.refresh(); // 레이어 줄의 속성표 버튼 눌림 표시
+    },
+  });
+  layers.refresh();
+}
+layers.onChange(() => {
+  if (attrTable && !layers.get(attrTable.layerId)) closeTable(); // 표를 보던 레이어를 지우면 표도 닫는다
+});
 
 /** 벡터 레이어를 GeoJSON/CSV 로 내려받는 패널 */
 function openExport(layerId) {
@@ -1237,6 +1353,13 @@ $('btn-dem').addEventListener('click', () => {
   input.click();
 });
 
+/** 열 수 있는 것이 하나도 없을 때: 짧은 상태 줄과 함께, 이유와 해결 방법을 오른쪽 패널에 보여 준다 */
+function showNoItems({ errors = [], skipped = [] }) {
+  closePlace();
+  showProblemPanel(placeEl, { title: '열 수 없습니다', problems: explainNoItems({ errors, skipped }), onClose: closePlace });
+  setStatus('열 수 있는 자료가 없습니다. 오른쪽 안내를 확인하세요.', 'error');
+}
+
 /** 선택한 파일들(SHP 묶음, GeoJSON, KML/KMZ, GPX, CSV, ZIP)을 읽어 열기 패널을 띄운다 */
 async function startVector(fileList) {
   const files = [...fileList];
@@ -1248,7 +1371,7 @@ async function startVector(fileList) {
     const { items, skipped, errors } = opened;
     if (!items.length) {
       opened.release();
-      setStatus(errors[0] ?? '벡터 자료(SHP, GeoJSON, KML/KMZ, GPX, CSV)를 찾지 못했습니다. SHP는 .shp와 함께 .dbf/.prj 파일도 같이 선택하세요(또는 .zip).', 'error');
+      showNoItems({ errors, skipped });
       return advanceQueue();
     }
     const styles = [];
@@ -1261,7 +1384,8 @@ async function startVector(fileList) {
     }
     closePlace();
     showVectorPanel(placeEl, items, {
-      skipped: [...skipped, ...errors],
+      skipped,
+      errors,
       styles,
       onCancel: () => {
         opened.release();
@@ -1273,10 +1397,10 @@ async function startVector(fileList) {
         try {
           let last = null;
           for (const r of results) {
-            const ds = await createVectorDataSource(r.collection, { name: r.name, useHeights: r.useHeights, heightOffset: r.heightOffset });
+            const ds = await createVectorDataSource(r.collection, { name: r.name, useHeights: r.useHeights, heightOffset: r.heightOffset, pointStyle: r.pointStyle });
             const styleState = r.style ? applyStyle(ds, r.style, r.collection) : null; // 지도에 올리기 전에 칠해야 빠르다
             await viewer.dataSources.add(ds);
-            const added = layers.add({ name: r.name, kind: 'vector', object: ds, host: 'dataSources', meta: { ...r.info, useHeights: !!r.useHeights, heightOffset: r.heightOffset ?? 0 }, style: styleState, data: r.collection });
+            const added = layers.add({ name: r.name, kind: 'vector', object: ds, host: 'dataSources', meta: { ...r.info, useHeights: !!r.useHeights, heightOffset: r.heightOffset ?? 0, pointStyle: ds.__pointStyle }, style: styleState, data: r.collection });
             if (styleState?.hasScale) updateScaleAll();
             if (styleState) {
               legendOpen.add(added.id);
@@ -1366,7 +1490,16 @@ async function openDropped(src) {
   const plan = classifyDrop([...src.files.keys()]);
   const total = itemCount(plan);
   if (!total) {
-    return setStatus('열 수 있는 파일이 없습니다. 3D Tiles 폴더, 지형 타일 폴더(layer.json), .glb, SHP(.shp + .dbf/.prj), GeoJSON, KML/KMZ, GPX, CSV(좌표), ZIP, 지형(.tif), 항공·위성 사진(GeoTIFF 또는 PNG/JPG + 월드파일)을 놓아 주세요.', 'error');
+    closePlace();
+    showProblemPanel(placeEl, {
+      title: '열 수 없습니다',
+      problems: [
+        ...explainSkipped(plan.ignored),
+        problem('열 수 있는 자료가 없습니다.', '3D Tiles 폴더, 지형 타일 폴더(layer.json), .glb, SHP(.shp + .dbf/.prj), GeoJSON, KML/KMZ, GPX, CSV(좌표), ZIP, 지형(.tif), 항공·위성 사진(GeoTIFF 또는 PNG/JPG + 월드파일)을 놓아 주세요.'),
+      ],
+      onClose: closePlace,
+    });
+    return setStatus('열 수 있는 파일이 없습니다. 오른쪽 안내를 확인하세요.', 'error');
   }
   const vectorFiles = (idx) => {
     const paths = new Set(plan.styles); // SLD는 같이 넘겨서 열기 패널에서 고르게 한다

@@ -103,7 +103,8 @@ describe('SHP 읽기', () => {
     const [lon, lat] = collection.features[0].geometry.coordinates;
     expect(lon).toBeCloseTo(126.978, 5);
     expect(lat).toBeCloseTo(37.5665, 5);
-    expect(info.warnings).toEqual([]);
+    // 이 시험 파일의 문자 열(t)에는 한글이 아닌 바이트가 들어 있어 "글자가 깨져 보입니다"만 나오고, 좌표·좌표계 관련 안내는 없다
+    expect(info.warnings.filter((w) => !w.startsWith('속성의 한글이 깨져'))).toEqual([]);
   });
 
   it('.prj가 없으면 좌표 범위로 5179를 추정하고 알려 준다', async () => {

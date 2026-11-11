@@ -49,6 +49,9 @@
       #place input[type="number"], #place select { width: 100%; }
       #place .warn { color: var(--warn); font-size: 12px; margin: 4px 0; }
       #place .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+      /* 진단 안내: 원인 줄 + "→ 해결" 줄 */
+      #place .p-hint { color: var(--text); opacity: 0.85; margin-top: 1px; }
+      #place .problem { border-left: 3px solid var(--warn); padding-left: 8px; margin: 8px 0; }
       #place .nudge { display: grid; grid-template-columns: repeat(3, 38px); gap: 3px; justify-content: center; align-items: center; text-align: center; margin: 6px 0; }
       #place .inline { display: flex; gap: 4px; align-items: center; }
       #place .inline input[type="range"] { flex: 1 1 auto; min-width: 0; padding: 0; }
@@ -71,6 +74,31 @@
       #info td:first-child { color: var(--muted); white-space: nowrap; }
       #info .close { float: right; }
       #place .sample { font-size: 12px; margin: 4px 0; overflow-wrap: anywhere; }
+      /* 속성 표: 지도 아래쪽에 붙는다 (위쪽 손잡이를 끌어 높이를 바꾼다) */
+      #attr { left: 10px; right: 10px; bottom: 44px; height: 36%; min-height: 160px; display: flex; flex-direction: column; overflow: hidden; padding: 0 10px 8px; z-index: 6; }
+      #attr[hidden] { display: none; }
+      #attr .a-grip { flex: none; height: 12px; margin: 0 -10px; cursor: ns-resize; touch-action: none; display: flex; align-items: center; justify-content: center; }
+      #attr .a-grip::after { content: ''; width: 44px; height: 4px; border-radius: 2px; background: #3b4c58; }
+      #attr .a-grip:hover::after { background: var(--accent); }
+      #attr .a-head { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 2px 0 6px; }
+      #attr .a-title { flex: 0 1 auto; max-width: 32%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+      #attr .a-head input[type="search"] { flex: 1 1 220px; min-width: 140px; padding: 2px 8px; }
+      #attr .a-head select { max-width: 190px; padding: 2px 4px; }
+      #attr .a-count { margin-left: auto; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+      #attr .a-stats { flex: none; color: var(--muted); font-size: 12px; padding: 0 0 5px; overflow-wrap: anywhere; }
+      #attr .a-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; position: relative; border: 1px solid var(--line); border-radius: 4px; outline: none; }
+      #attr .a-scroll:focus-visible { border-color: var(--accent); }
+      #attr .a-row { display: grid; align-items: center; }
+      #attr .a-header { position: sticky; top: 0; z-index: 2; background: var(--panel-2); font-weight: 600; border-bottom: 1px solid #2f4452; }
+      #attr .a-cell { padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-right: 1px solid var(--line); }
+      #attr .a-hcell { cursor: pointer; user-select: none; }
+      #attr .a-hcell:hover, #attr .a-hcell.sorted { color: var(--accent); }
+      #attr .a-spacer { position: relative; }
+      #attr .a-view { position: absolute; left: 0; }
+      #attr .a-view .a-row { border-top: 1px solid var(--line); cursor: pointer; }
+      #attr .a-view .a-row:hover { background: rgba(92, 196, 209, 0.12); }
+      #attr .a-view .a-row.sel { background: rgba(255, 230, 0, 0.22); }
+      #attr .a-cell.num { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
       #coord { right: 10px; bottom: 10px; padding: 3px 8px; display: flex; gap: 8px; align-items: center; font-size: 12px; font-variant-numeric: tabular-nums; pointer-events: auto; }
       #coord select { padding: 1px 4px; font-size: 12px; max-width: 150px; }
       #coord-text { white-space: nowrap; }
@@ -127,6 +155,7 @@
       <div id="place" class="panel" hidden></div>
       <div id="info" class="panel" hidden></div>
       <div id="measure" class="panel" hidden></div>
+      <div id="attr" class="panel" hidden></div>
       <div id="coord" class="panel"><select id="sel-crs" aria-label="좌표 표시 좌표계"></select><span id="coord-text">지도 위에 마우스를 올려 보세요</span><button id="coord-copy" type="button" title="마지막으로 본 위치의 좌표(위에서 고른 좌표계의 X, Y)를 복사합니다">복사</button></div>
       <div id="mousehint"></div>
       <div id="status" hidden></div>

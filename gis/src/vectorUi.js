@@ -4,6 +4,9 @@
  */
 import { CRS_LIST } from '../../viewer/src/kit/crsList.js';
 import { enhanceCrsSelect } from '../../viewer/src/kit/crsPicker.js';
+import { explainSkipped } from './diagnose.js';
+import { problemNode } from './diagnoseUi.js';
+import { POINT_STYLES, hasPointGeometry, loadPointStyle, savePointStyle } from './pointStyles.js';
 import { pickRule } from './sld.js';
 
 const CRS_CHOICES = CRS_LIST.map((c) => ({ code: c.code, label: c.label }));
@@ -49,17 +52,18 @@ const sampleText = (props) =>
 /**
  * @param {HTMLElement} panel 비어 있는 패널 요소 (이 함수가 내용을 채운다)
  * @param {Array<{name:string, raw:object}>} items 읽은 파일 묶음(원본)
- * @param {{skipped?:string[], styles?:Array<{name:string, style:object}>, onConfirm:(results:Array<{name:string, collection:object, info:object, style:object|null}>)=>void|Promise<void>, onCancel:()=>void}} o
+ * @param {{skipped?:string[] (건너뛴 파일 경로), errors?:string[] (읽다가 난 오류 안내), styles?:Array<{name:string, style:object}>, onConfirm:(results:Array<{name:string, collection:object, info:object, style:object|null}>)=>void|Promise<void>, onCancel:()=>void}} o
  *   styles: 같이 읽은 SLD 스타일 (parseSld 결과). 데이터가 쓰는 속성이 모두 있는 스타일을 자동으로 고른다.
  */
-export function showVectorPanel(panel, items, { skipped = [], styles = [], onConfirm, onCancel }) {
+export function showVectorPanel(panel, items, { skipped = [], errors = [], styles = [], onConfirm, onCancel }) {
   panel.replaceChildren();
   panel.hidden = false;
   panel.append(el('h2', null, '벡터 자료 열기'));
   panel.append(el('div', 'sub', '한글이 깨져 보이거나 위치가 어긋나 보이면 아래에서 인코딩·좌표계를 고르세요.'));
-  if (skipped.length) panel.append(el('div', 'warn', `건너뛴 파일: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? ' …' : ''}`));
+  // 읽다가 난 오류와 건너뛴 파일은 이유와 해결 방법을 같이 보여 준다
+  for (const m of [...errors, ...explainSkipped(skipped)]) panel.append(problemNode(m));
 
-  const states = items.map((item) => ({ item, opts: { encoding: 'auto', crs: 'auto' }, result: null, styleIndex: null, pending: false, useHeights: false, heightOffset: 0 }));
+  const states = items.map((item) => ({ item, opts: { encoding: 'auto', crs: 'auto' }, result: null, styleIndex: null, pending: false, useHeights: false, heightOffset: 0, pointStyle: loadPointStyle() }));
   // 계산이 끝나지 않았거나 열 수 있는 게 없으면 "열기"를 잠근다
   let okBtn = null;
   let confirming = false;
@@ -122,11 +126,32 @@ export function showVectorPanel(panel, items, { skipped = [], styles = [], onCon
     offsetIn.addEventListener('input', () => {
       st.heightOffset = Number(offsetIn.value) || 0;
     });
+    // X·Y 순서 바꾸기: 위도, 경도 순으로 저장된 자료(진단이 알아차렸을 때만 보인다)
+    const swapRow = el('label');
+    swapRow.hidden = true;
+    swapRow.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;margin:4px 0';
+    const swapCb = document.createElement('input');
+    swapCb.type = 'checkbox';
+    swapRow.append(swapCb, document.createTextNode('X·Y 순서 바꾸기 (좌표가 위도, 경도 순으로 저장된 자료)'));
+    swapCb.addEventListener('change', () => {
+      st.opts = { ...st.opts, swapXY: swapCb.checked };
+      recompute();
+    });
+    // 점 모양: 점이 있는 자료에서만 보인다. 마지막으로 고른 모양을 기억해 다음에도 기본으로 쓴다.
+    const pointRow = el('div', 'form');
+    pointRow.hidden = true;
+    const pointSel = select(POINT_STYLES.map((p) => [p.id, p.label]), st.pointStyle);
+    pointSel.title = '점을 지도에 그리는 모양. 점이 아주 많으면 "작은 점"이 보기 좋고 가볍습니다. 열고 난 뒤에도 레이어 줄에서 바꿀 수 있습니다.';
+    pointRow.append(el('label', null, '점 모양'), pointSel);
+    pointSel.addEventListener('change', () => {
+      st.pointStyle = pointSel.value;
+      savePointStyle(st.pointStyle);
+    });
     const detail = el('div', 'sub');
     const sample = el('div', 'sample');
     const styleInfo = el('div', 'sub');
     const warns = el('div');
-    fs.append(summary, form, detail, sample, styleInfo, heightRow, warns);
+    fs.append(summary, form, swapRow, pointRow, detail, sample, styleInfo, heightRow, warns);
     panel.append(fs);
 
     /** 이 데이터가 가진 속성 이름을 모두 쓰는 스타일을 찾는다 (SLD 필터가 가리키는 속성이 있어야 칠할 수 있다) */
@@ -165,7 +190,7 @@ export function showVectorPanel(panel, items, { skipped = [], styles = [], onCon
         if (mine !== latest) return;
         st.pending = false;
         st.result = null;
-        warns.replaceChildren(el('div', 'warn', e.message));
+        warns.replaceChildren(problemNode(e.message));
         refreshOk();
         return;
       }
@@ -180,6 +205,8 @@ export function showVectorPanel(panel, items, { skipped = [], styles = [], onCon
         (info.center ? ` · 중심 경도 ${info.center.lon.toFixed(5)}, 위도 ${info.center.lat.toFixed(5)}` : '') +
         (info.encoding ? ` · 인코딩: ${info.encoding.encoding} (${ENCODING_SOURCE[info.encoding.source] ?? info.encoding.source})` : '');
       sample.textContent = info.encoding || st.item.kind === 'geojson' || st.item.kind === 'csv' ? `속성 예: ${sampleText(info.sampleProperties)}` : '';
+      swapRow.hidden = !info.swapSuspected;
+      pointRow.hidden = !hasPointGeometry(info.geometryTypes);
       heightRow.hidden = !info.hasHeights;
       if (!info.hasHeights && st.useHeights) {
         st.useHeights = false;
@@ -204,7 +231,7 @@ export function showVectorPanel(panel, items, { skipped = [], styles = [], onCon
         st.styleIndex = autoStyleIndex();
         if (styleSel) styleSel.value = String(st.styleIndex);
       }
-      warns.replaceChildren(...[...info.warnings, ...refreshStyle()].map((w) => el('div', 'warn', w)));
+      warns.replaceChildren(...[...info.warnings, ...refreshStyle()].map((w) => problemNode(w)));
     };
     styleSel?.addEventListener('change', () => {
       st.styleIndex = Number(styleSel.value);
@@ -238,7 +265,7 @@ export function showVectorPanel(panel, items, { skipped = [], styles = [], onCon
   okBtn = ok;
   refreshOk();
   ok.addEventListener('click', async () => {
-    const results = states.filter((s) => s.result).map((s) => ({ name: s.item.name, collection: s.result.collection, info: s.result.info, style: s.styleIndex >= 0 ? styles[s.styleIndex].style : null, useHeights: s.useHeights && !!s.result.info.hasHeights, heightOffset: Number(s.heightOffset) || 0 }));
+    const results = states.filter((s) => s.result).map((s) => ({ name: s.item.name, collection: s.result.collection, info: s.result.info, style: s.styleIndex >= 0 ? styles[s.styleIndex].style : null, useHeights: s.useHeights && !!s.result.info.hasHeights, heightOffset: Number(s.heightOffset) || 0, pointStyle: s.pointStyle }));
     if (!results.length) return;
     confirming = true;
     refreshOk();

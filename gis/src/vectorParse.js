@@ -15,6 +15,7 @@ import { DOMParser } from '@xmldom/xmldom';
 import { gpx as gpxToGeoJson, kml as kmlToGeoJson } from '@tmcw/togeojson';
 import { CRS_LIST, getCrs, isKnownCrs, isNearKorea, isValidLonLat } from '../../viewer/src/kit/crsList.js';
 import { csvToPoints } from './csvParse.js';
+import { dataDiagnostics, emptyReason, looksSwapped, problem, sanitizeFeatures } from './diagnose.js';
 import { hasHeights } from './geomHeights.js';
 import { baseOf, extOf, isVectorFileName, stemOf } from './vectorNames.js';
 
@@ -60,11 +61,16 @@ async function expandEntries(files) {
     if (/\.(zip|kmz)$/i.test(f.name)) {
       const isKmz = /\.kmz$/i.test(f.name);
       const bytes = new Uint8Array(await f.arrayBuffer());
-      for (const e of iter(bytes)) {
-        const name = String(e.filename).split(String.fromCharCode(92)).join('/');
-        if (name.endsWith('/') || name.startsWith('__MACOSX/') || baseOf(name).startsWith('.')) continue;
-        if (isKmz && extOf(name) !== 'kml') continue; // KMZ 안의 그림·아이콘은 건너뛴 목록에도 올리지 않는다
-        out.push({ path: name, origin: f.name, read: async () => toArrayBuffer(await e.read()) });
+      if (!bytes.length) throw new Error(problem(`${f.name}: 비어 있는 파일(0바이트)입니다.`, '내려받기나 복사가 중간에 끊겼을 수 있습니다. 원본을 다시 받아 보세요.'));
+      try {
+        for (const e of iter(bytes)) {
+          const name = String(e.filename).split(String.fromCharCode(92)).join('/');
+          if (name.endsWith('/') || name.startsWith('__MACOSX/') || baseOf(name).startsWith('.')) continue;
+          if (isKmz && extOf(name) !== 'kml') continue; // KMZ 안의 그림·아이콘은 건너뛴 목록에도 올리지 않는다
+          out.push({ path: name, origin: f.name, read: async () => toArrayBuffer(await e.read()) });
+        }
+      } catch (e) {
+        throw new Error(problem(`${f.name}: ${isKmz ? 'KMZ' : 'ZIP'}을 풀 수 없습니다 (${e.message}).`, '파일이 중간에 끊겼거나 ZIP이 아닐 수 있습니다. 암호가 걸린 ZIP도 열 수 없으니 풀어서 안의 파일을 직접 선택하세요.'));
       }
     } else {
       out.push({ path: f.name, read: () => f.arrayBuffer() });
@@ -119,38 +125,62 @@ const decodeText = (buf) => new TextDecoder('utf-8').decode(buf).replace(/^﻿/,
  * 파일 내용을 한 번만 읽는다 (좌표 변환·인코딩은 하지 않은 원본).
  * @returns {Promise<{kind:'shp'|'geojson', name:string, geoms?:object[], geojson?:object, dbfBuf?:ArrayBuffer|null, prjText:string|null, cpgText:string|null}>}
  */
+const GEOJSON_TYPES = new Set(['FeatureCollection', 'Feature', 'Point', 'MultiPoint', 'LineString', 'MultiLineString', 'Polygon', 'MultiPolygon', 'GeometryCollection']);
+
+/** 비어 있는 파일은 읽기 전에 알려 준다 (내려받기가 끊겼을 때 흔하다) */
+function assertNotEmpty(buf, name) {
+  if (!buf || buf.byteLength === 0) throw new Error(problem(`${name}: 비어 있는 파일(0바이트)입니다.`, '내려받기나 복사가 중간에 끊겼을 수 있습니다. 원본을 다시 받아 보세요.'));
+}
+
 export async function readRaw(group) {
   if (group.kind === 'geojson') {
+    const buf = await group.parts.geojson.read();
+    assertNotEmpty(buf, group.name);
     let geojson;
     try {
-      geojson = JSON.parse(decodeText(await group.parts.geojson.read()));
+      geojson = JSON.parse(decodeText(buf));
     } catch (e) {
-      throw new Error(`${group.name}: GeoJSON을 읽을 수 없습니다 (${e.message})`);
+      throw new Error(problem(`${group.name}: GeoJSON을 읽을 수 없습니다 (${e.message}).`, '파일이 중간에 잘렸거나 JSON이 아닙니다. 내용이 { 로 시작하고 "type": "FeatureCollection" 이 있는지 확인하세요.'));
+    }
+    if (geojson?.type === 'Topology') {
+      throw new Error(problem(`${group.name}: TopoJSON입니다. GeoJSON이 아니라 열 수 없습니다.`, 'QGIS나 mapshaper에서 GeoJSON으로 내보낸 뒤 여세요.'));
+    }
+    if (!geojson || !GEOJSON_TYPES.has(geojson.type)) {
+      throw new Error(problem(`${group.name}: GeoJSON이 아닙니다 ("type" 값이 ${geojson?.type ? `"${geojson.type}"` : '없음'}).`, 'GeoJSON은 type이 FeatureCollection·Feature 또는 도형 이름(Point, Polygon 등)이어야 합니다. 3D Tiles의 tileset.json 같은 다른 JSON은 열 수 없습니다.'));
     }
     return { kind: 'geojson', source: 'GeoJSON', name: group.name, geojson, dbfBuf: null, prjText: null, cpgText: null };
   }
   if (group.kind === 'kml' || group.kind === 'gpx') {
     // KML/GPX 는 늘 경위도(WGS84)라서 좌표계를 묻지 않는다. 변환은 togeojson 이 한다.
     const label = group.kind.toUpperCase();
+    const buf = await group.parts.file.read();
+    assertNotEmpty(buf, group.name);
     let geojson;
+    let networkLinks = false;
     try {
-      const doc = new DOMParser({ onError: () => {} }).parseFromString(decodeText(await group.parts.file.read()), 'text/xml');
+      const doc = new DOMParser({ onError: () => {} }).parseFromString(decodeText(buf), 'text/xml');
       if (!doc?.documentElement) throw new Error('XML이 아닙니다');
       geojson = group.kind === 'kml' ? kmlToGeoJson(doc) : gpxToGeoJson(doc);
+      networkLinks = group.kind === 'kml' && doc.getElementsByTagName('NetworkLink').length > 0;
     } catch (e) {
-      throw new Error(`${group.name}: ${label}을 읽을 수 없습니다 (${e.message})`);
+      throw new Error(problem(`${group.name}: ${label}을 읽을 수 없습니다 (${e.message}).`, `파일이 중간에 끊겼거나 확장자만 ${label}로 바뀐 다른 파일일 수 있습니다. 텍스트로 열어 <?xml 로 시작하고 <${group.kind === 'kml' ? 'kml' : 'gpx'} 가 있는지 확인하세요.`));
     }
-    return { kind: 'geojson', source: label, crsFixed: true, name: group.name, geojson, dbfBuf: null, prjText: null, cpgText: null };
+    return { kind: 'geojson', source: label, crsFixed: true, networkLinks, name: group.name, geojson, dbfBuf: null, prjText: null, cpgText: null };
   }
   if (group.kind === 'csv') {
     // 글자 해석(인코딩·구분자·좌표 열)은 설정을 바꿀 때마다 다시 해야 하므로 원본 바이트만 들고 있는다
-    return { kind: 'csv', source: 'CSV', name: group.name, buf: await group.parts.file.read(), dbfBuf: null, prjText: null, cpgText: null };
+    const buf = await group.parts.file.read();
+    assertNotEmpty(buf, group.name);
+    return { kind: 'csv', source: 'CSV', name: group.name, buf, dbfBuf: null, prjText: null, cpgText: null };
   }
   let geoms;
   try {
-    geoms = parseShp(await group.parts.shp.read());
+    const shpBuf = await group.parts.shp.read();
+    assertNotEmpty(shpBuf, `${group.name}.shp`);
+    geoms = parseShp(shpBuf);
   } catch (e) {
-    throw new Error(`${group.name}: SHP를 읽을 수 없습니다 (${e.message})`);
+    if (/비어 있는 파일/.test(e.message)) throw e;
+    throw new Error(problem(`${group.name}: SHP를 읽을 수 없습니다 (${e.message}).`, '파일이 깨졌거나 SHP가 아닐 수 있습니다. QGIS에서 열어 보고, 열리지 않으면 원본을 다시 받으세요. 지원하지 않는 도형 종류(멀티패치 등)일 수도 있습니다.'));
   }
   return {
     kind: 'shp',
@@ -279,12 +309,13 @@ const rawFeatures = (raw, props) => {
 
 /**
  * @param {Awaited<ReturnType<typeof readRaw>>} raw
- * @param {{encoding?:string, crs?:string, delimiter?:string, xCol?:number, yCol?:number}} [opts]
+ * @param {{encoding?:string, crs?:string, delimiter?:string, xCol?:number, yCol?:number, swapXY?:boolean}} [opts]
  *   encoding: 'auto' | 'utf-8' | 'euc-kr' | ..., crs: 'auto' | 'EPSG:xxxx',
  *   delimiter·xCol·yCol: CSV 만 (구분자 'auto' | ',' | '\t' | ';' | '|', 경도·위도 열 번호)
+ *   swapXY: 원본 좌표의 X·Y 순서를 바꿔 읽는다 (위도, 경도 순으로 저장된 자료)
  * @returns {{collection:object, info:object}}
  */
-export function buildCollection(raw, { encoding = 'auto', crs = 'auto', delimiter = 'auto', xCol, yCol } = {}) {
+export function buildCollection(raw, { encoding = 'auto', crs = 'auto', delimiter = 'auto', xCol, yCol, swapXY = false } = {}) {
   const warnings = [];
 
   // 속성 (SHP만 DBF가 따로 있다)
@@ -312,27 +343,58 @@ export function buildCollection(raw, { encoding = 'auto', crs = 'auto', delimite
     }
   }
 
-  const features = csvFeatures ?? rawFeatures(raw, props);
+  let features = csvFeatures ?? rawFeatures(raw, props);
+  if (swapXY) features = features.map((f) => ({ ...f, geometry: mapGeometry(f.geometry, (p) => [p[1], p[0], ...p.slice(2)]) }));
   const rawBbox = bboxOf(features.map((f) => f.geometry));
+  const swapped = looksSwapped(rawBbox); // swapXY 를 켠 뒤에는 정상으로 보이므로 false 가 된다
   const c = resolveCrs(raw, rawBbox, crs);
   if (c.source === 'guess') warnings.push(`좌표계 정보가 없어 좌표 범위로 ${c.label}(으)로 추정했습니다. 위치가 어긋나 보이면 좌표계를 직접 고르세요.`);
-  if (c.source === 'default' && rawBbox && !(rawBbox[0] >= -180 && rawBbox[2] <= 180 && rawBbox[1] >= -90 && rawBbox[3] <= 90)) {
+  // X·Y 가 뒤바뀐 자료는 아래 진단이 더 정확히 말하므로 같은 원인의 안내를 겹쳐 내지 않는다
+  if (!swapped && c.source === 'default' && rawBbox && !(rawBbox[0] >= -180 && rawBbox[2] <= 180 && rawBbox[1] >= -90 && rawBbox[3] <= 90)) {
     warnings.push('좌표계를 알 수 없고 경위도 범위도 아닙니다. 좌표계를 직접 고르세요.');
   }
   if (c.code === 'EPSG:5186' || c.code === 'EPSG:5185' || c.code === 'EPSG:5187') {
     if (c.source === 'guess') warnings.push('서부·중부·동부원점(5185/5186/5187)은 같은 숫자라도 위치가 다릅니다. 위치를 확인하세요.');
   }
 
-  const converted = features.map((f) => ({ ...f, geometry: mapGeometry(f.geometry, c.convert) }));
+  const sanitized = sanitizeFeatures(features.map((f) => ({ ...f, geometry: mapGeometry(f.geometry, c.convert) })));
+  const converted = sanitized.features;
+  const { broken } = sanitized;
+  // 링크(NetworkLink)만 있는 KML 은 도형 없는 피처가 남을 뿐이다: "도형이 없다"가 아니라 링크를 설명한다
+  const linkOnly = raw.networkLinks && converted.length > 0 && converted.every((f) => !f.geometry);
+  const empty = linkOnly ? 0 : sanitized.empty;
+  if (linkOnly) warnings.push(emptyReason(raw.kind, raw.source, { networkLinks: true }));
   const bbox = bboxOf(converted.map((f) => f.geometry));
   const types = [...new Set(converted.map((f) => f.geometry?.type).filter(Boolean))];
   let center = null;
+  let nearKorea = null;
   if (bbox) {
     center = { lon: (bbox[0] + bbox[2]) / 2, lat: (bbox[1] + bbox[3]) / 2 };
-    if (!isValidLonLat(center)) warnings.push('변환한 좌표가 경위도 범위를 벗어났습니다. 좌표계를 확인하세요.');
-    else if (!isNearKorea(center)) warnings.push(`변환한 위치(경도 ${center.lon.toFixed(3)}, 위도 ${center.lat.toFixed(3)})가 한국 밖입니다. 해외 자료가 맞다면 그대로 두고, 아니라면 좌표계를 확인하세요.`);
+    if (!isValidLonLat(center)) {
+      if (!swapped) warnings.push(problem('변환한 좌표가 경위도 범위를 벗어났습니다.', '좌표계를 확인하세요. 좌표 숫자가 수십만 단위(미터)라면 한국 좌표계(예: EPSG:5186)를 골라 보세요.'));
+    } else {
+      nearKorea = isNearKorea(center);
+      if (!nearKorea) warnings.push(`변환한 위치(경도 ${center.lon.toFixed(3)}, 위도 ${center.lat.toFixed(3)})가 한국 밖입니다. 해외 자료가 맞다면 그대로 두고, 아니라면 좌표계를 확인하세요.`);
+    }
   }
-  if (features.length === 0 && !(csv && csv.xCol < 0)) warnings.push('피처가 없습니다.'); // CSV 는 좌표 열을 못 찾았다는 안내가 이미 있다
+  if (features.length === 0 && !(csv && csv.xCol < 0)) warnings.push(emptyReason(raw.kind, raw.source, { networkLinks: raw.networkLinks })); // CSV 는 좌표 열을 못 찾았다는 안내가 이미 있다
+  warnings.push(
+    ...dataDiagnostics({
+      kind: raw.kind,
+      count: converted.length,
+      features: converted,
+      rawBbox,
+      bbox,
+      center,
+      crs: { code: c.code, source: c.source },
+      nearKorea,
+      canPickEncoding: raw.kind === 'csv' || Boolean(raw.dbfBuf),
+      suggestCrs: !swapped && nearKorea === false && rawBbox ? guessCrs(rawBbox) : null,
+      empty,
+      broken,
+      swapped,
+    }),
+  );
 
   return {
     collection: { type: 'FeatureCollection', features: converted },
@@ -341,6 +403,9 @@ export function buildCollection(raw, { encoding = 'auto', crs = 'auto', delimite
       kind: raw.kind,
       source: raw.source ?? raw.kind,
       csv,
+      swapSuspected: swapped || swapXY, // 화면이 "X·Y 순서 바꾸기" 칸을 보일지 정하는 데 쓴다
+      emptyCount: empty,
+      brokenCount: broken,
       hasHeights: hasHeights({ features: converted }), // 좌표에 높이(세 번째 값)가 있는가 (지도에서 높이를 쓸지 고를 수 있게)
       count: converted.length,
       geometryTypes: types,

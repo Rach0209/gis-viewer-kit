@@ -26,25 +26,61 @@ export function createHighlighter(viewer) {
     ds.entities.add({ polyline: { positions, width, clampToGround: true, material: YELLOW(), classificationType: BOTH() } });
   };
 
+  const polygon = (h) => {
+    ds.entities.add({ polygon: { hierarchy: h, material: YELLOW().withAlpha(0.4), classificationType: BOTH() } });
+    const ring = (positions) => positions.length > 1 && line([...positions, positions[0]], 4);
+    ring(h.positions);
+    for (const hole of h.holes ?? []) ring(hole.positions);
+  };
+  const point = (position) => {
+    ds.entities.add({
+      position,
+      point: { pixelSize: 20, color: YELLOW().withAlpha(0.9), outlineColor: Cesium.Color.BLACK, outlineWidth: 3, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+    });
+  };
+
   function add(entity, now) {
     if (entity.polygon) {
       const h = entity.polygon.hierarchy?.getValue(now);
-      if (!h) return;
-      ds.entities.add({ polygon: { hierarchy: h, material: YELLOW().withAlpha(0.4), classificationType: BOTH() } });
-      const ring = (positions) => positions.length > 1 && line([...positions, positions[0]], 4);
-      ring(h.positions);
-      for (const hole of h.holes ?? []) ring(hole.positions);
+      if (h) polygon(h);
     } else if (entity.polyline) {
       const pos = entity.polyline.positions?.getValue(now);
       if (pos) line(pos, 6);
     } else if (entity.position) {
       const position = entity.position.getValue(now);
-      if (position) {
-        ds.entities.add({
-          position,
-          point: { pixelSize: 20, color: YELLOW().withAlpha(0.9), outlineColor: Cesium.Color.BLACK, outlineWidth: 3, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY },
-        });
-      }
+      if (position) point(position);
+    }
+  }
+
+  /** GeoJSON 좌표([경도, 위도, …]들) → 지도 위 점들 (높이는 쓰지 않는다: 강조는 늘 지면에 붙인다) */
+  const cartesians = (coords) => Cesium.Cartesian3.fromDegreesArray(coords.flatMap((c) => [c[0], c[1]]));
+
+  /** GeoJSON 도형을 강조용 도형으로 그린다 (속성 표에서 행을 고를 때: 엔티티 없이 도형만으로) */
+  function addGeometry(g) {
+    if (!g) return;
+    switch (g.type) {
+      case 'Point':
+        point(Cesium.Cartesian3.fromDegrees(g.coordinates[0], g.coordinates[1]));
+        break;
+      case 'MultiPoint':
+        for (const c of g.coordinates) point(Cesium.Cartesian3.fromDegrees(c[0], c[1]));
+        break;
+      case 'LineString':
+        line(cartesians(g.coordinates), 6);
+        break;
+      case 'MultiLineString':
+        for (const c of g.coordinates) line(cartesians(c), 6);
+        break;
+      case 'Polygon':
+        polygon(new Cesium.PolygonHierarchy(cartesians(g.coordinates[0]), g.coordinates.slice(1).map((r) => new Cesium.PolygonHierarchy(cartesians(r)))));
+        break;
+      case 'MultiPolygon':
+        for (const p of g.coordinates) addGeometry({ type: 'Polygon', coordinates: p });
+        break;
+      case 'GeometryCollection':
+        for (const x of g.geometries) addGeometry(x);
+        break;
+      default:
     }
   }
 
@@ -67,6 +103,20 @@ export function createHighlighter(viewer) {
           const sig = signature(entity);
           if (sig !== '[]') for (const other of source.entities.values) if (other !== entity && other.polygon && other.show && signature(other) === sig) add(other, now);
         }
+      } finally {
+        ds.entities.resumeEvents();
+      }
+    },
+
+    /**
+     * GeoJSON 도형을 강조한다. source(그 피처가 속한 데이터 소스)를 주면 그 레이어를 끄거나 지울 때 강조도 같이 없어진다.
+     */
+    showGeometry(geometry, dataSource = null) {
+      this.clear();
+      source = dataSource;
+      ds.entities.suspendEvents();
+      try {
+        addGeometry(geometry);
       } finally {
         ds.entities.resumeEvents();
       }

@@ -3,6 +3,7 @@
 import { labelText, parseColor, pickRule, ruleActiveAtScale } from './sld.js';
 import { shiftHeights, stripHeights } from './geomHeights.js';
 import { dashToCesium, lineMidpoint, polygonLabelPoint } from './geomLabel.js';
+import { DEFAULT_POINT_STYLE, normalizePointStyle, pointStyleSpec } from './pointStyles.js';
 
 const toCesiumColor = (hex, opacity) => {
   const c = parseColor(hex, opacity);
@@ -154,9 +155,10 @@ export function applyStyle(ds, style, collection = null) {
           e.polyline.width = Math.max(1, s.width);
         }
       }
-      if (e.billboard && point) {
+      if (point) {
         const color = toCesiumColor(point.fill, point.fillOpacity);
-        if (color) e.billboard.color = color;
+        if (color && e.billboard) e.billboard.color = color;
+        else if (color && e.point) e.point.color = color; // 동그라미·작은 점
       }
       if (hasText && text) addLabel(ds, e, text, hit.index, ruleOf, now, props, hit.rule.minScale == null && hit.rule.maxScale == null);
     }
@@ -227,12 +229,13 @@ export const nextColor = () => PALETTE[colorIndex++ % PALETTE.length];
 
 /**
  * @param {object} collection WGS84 FeatureCollection
- * @param {{name:string, color?:string, useHeights?:boolean, heightOffset?:number}} o
+ * @param {{name:string, color?:string, useHeights?:boolean, heightOffset?:number, pointStyle?:string}} o
  *   useHeights: false(기본)면 높이를 떼고 모두 지면에 붙인다. true면 좌표의 높이대로 그린다(지면에 붙이지 않음)
  *   heightOffset: useHeights 일 때 높이에 더하는 값(m). 해수면 기준 표고를 타원체고에 맞출 때 쓴다
+ *   pointStyle: 점 모양 'circle'(동그라미) | 'dot'(작은 점) | 'pin'(핀). pointStyles.js
  * @returns {Promise<Cesium.GeoJsonDataSource>}
  */
-export async function createVectorDataSource(collection, { name, color = nextColor(), useHeights = false, heightOffset = 0 }) {
+export async function createVectorDataSource(collection, { name, color = nextColor(), useHeights = false, heightOffset = 0, pointStyle = DEFAULT_POINT_STYLE }) {
   const c = Cesium.Color.fromCssColorString(color);
   const ds = await Cesium.GeoJsonDataSource.load(useHeights ? shiftHeights(collection, heightOffset) : stripHeights(collection), {
     clampToGround: !useHeights,
@@ -242,11 +245,30 @@ export async function createVectorDataSource(collection, { name, color = nextCol
     markerColor: c,
   });
   ds.name = name;
-  ds.__baseColor = color; // 높이 옵션을 바꿔 다시 만들 때 같은 색을 쓰려고
-  for (const e of ds.entities.values) {
-    // 기본은 지형(지구 표면)에만 붙는다. 3D 타일 위에도 붙도록 분류 대상을 넓힌다.
-    if (e.polygon) e.polygon.classificationType = Cesium.ClassificationType.BOTH;
-    if (e.polyline) e.polyline.classificationType = Cesium.ClassificationType.BOTH;
+  ds.__baseColor = color; // 높이·점 모양을 바꿔 다시 만들 때 같은 색을 쓰려고
+  const style = normalizePointStyle(pointStyle);
+  ds.__pointStyle = style;
+  const spec = pointStyleSpec(style);
+  ds.entities.suspendEvents();
+  try {
+    for (const e of ds.entities.values) {
+      // 기본은 지형(지구 표면)에만 붙는다. 3D 타일 위에도 붙도록 분류 대상을 넓힌다.
+      if (e.polygon) e.polygon.classificationType = Cesium.ClassificationType.BOTH;
+      if (e.polyline) e.polyline.classificationType = Cesium.ClassificationType.BOTH;
+      if (e.billboard && style !== 'pin') {
+        // Cesium 은 점을 핀 그림(billboard)으로 만든다. 핀이 아닌 모양은 색 점(point)으로 바꿔 단다.
+        e.billboard = undefined;
+        e.point = new Cesium.PointGraphics({
+          pixelSize: spec.size,
+          color: c,
+          outlineColor: Cesium.Color.WHITE,
+          outlineWidth: spec.outline,
+          heightReference: useHeights ? Cesium.HeightReference.NONE : Cesium.HeightReference.CLAMP_TO_GROUND,
+        });
+      }
+    }
+  } finally {
+    ds.entities.resumeEvents();
   }
   return ds;
 }

@@ -145,7 +145,8 @@ export async function openVectorFiles(files) {
         const wire = await Promise.all(src.files.map(toWire));
         return { src, lease, out: await lease.run('vectorOpen', { files: wire }) };
       } catch (e) {
-        return { src, lease, error: `${src.label}: ${e?.message ?? e}` };
+        const msg = String(e?.message ?? e);
+        return { src, lease, error: msg.startsWith(src.label) ? msg : `${src.label}: ${msg}` }; // 이미 파일 이름으로 시작하는 안내는 겹치게 붙이지 않는다
       }
     }),
   );
