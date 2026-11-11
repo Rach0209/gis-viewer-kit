@@ -8,6 +8,8 @@ import { AnnotationTool } from '../interaction/AnnotationTool.js';
 import { HoverHighlight } from '../interaction/HoverHighlight.js';
 import { createMinimap, SIZE as MINIMAP_SIZE } from '../ui/Minimap.js';
 import { createMinimapTileRenderer } from '../ui/MinimapTileRenderer.js';
+import { computeViewFootprint } from '../ui/viewFootprint.js';
+import { computeMinimapExtent } from '../ui/minimapExtent.js';
 import { AnnotationLayer } from '../layers/AnnotationLayer.js';
 import { pickAt } from '../interaction/Raycast.js';
 import { onDragAwareClick } from '../interaction/dragAwareClick.js';
@@ -128,6 +130,8 @@ export function createTileViewer(container, options = {}) {
     onClearMeasure: () => measure?.clearAll(),
     onToggleAnnotate: (on) => api.setTool(on ? 'annotate' : null),
     onClearAnnotations: () => api.clearAnnotations(),
+    onMemoSelect: (i) => focusMemo(i),
+    onMemoDelete: (i) => deleteMemo(i),
     onScreenshot: () => api.saveScreenshot(),
     onToggleMinimap: (on) => api.setMinimapEnabled(on),
     minimapOn: opts.minimap,
@@ -173,6 +177,33 @@ export function createTileViewer(container, options = {}) {
   /** @type {AnnotationTool|null} */
   let annotationTool = null;
   let annotationScope = null;
+  /** 목록/지도에서 고른 메모 번호 (없으면 -1) */
+  let selectedMemo = -1;
+
+  function refreshMemos() {
+    annotationLayer?.select(selectedMemo);
+    ui.setMemos(annotationLayer ? annotationLayer.getAll() : [], selectedMemo);
+  }
+  function selectMemo(index) {
+    selectedMemo = index;
+    refreshMemos();
+  }
+  /** 목록에서 메모를 누르면 그 지점으로 이동하고 핀을 크게 보여 준다. */
+  function focusMemo(index) {
+    const memo = annotationLayer?.getAll()[index];
+    if (!memo) return;
+    selectMemo(index);
+    // 한 변을 데이터 크기의 1/6쯤으로 (미터 데이터든 단위 없는 모델이든 알맞게). 작은 모델에서도 너무 가깝지 않게 최소를 둔다.
+    const diag = homeBox ? homeBox.getSize(new THREE.Vector3()).length() : 0;
+    api.focusLocal(memo.position, diag > 0 ? Math.min(Math.max(diag / 6, Math.min(25, diag * 0.5)), 300) : 80);
+    ui.hidePopup();
+  }
+  function deleteMemo(index) {
+    if (!annotationLayer?.removeAt(index)) return;
+    selectedMemo = -1;
+    persistence?.save(annotationScope, annotationLayer.getAll());
+    refreshMemos();
+  }
   /** geo 모드일 때만: 로컬 좌표 -> 경위도 */
   let toGeo = null;
   // 미니맵: 켜져 있어도 타일셋이 로드되기 전에는 만들지 않는다 (레이어 목록을 만들 때 잡아 두기 때문).
@@ -191,6 +222,7 @@ export function createTileViewer(container, options = {}) {
   let disposed = false;
 
   const camDir = new THREE.Vector3();
+  const minimapSize = new THREE.Vector3();
   viewer.addUpdateCallback((camera, dt) => {
     if (walkActive) experience.update(dt);
     else rig?.update(dt);
@@ -202,11 +234,21 @@ export function createTileViewer(container, options = {}) {
     }
     if (minimap && minimapBg && homeBox) {
       camera.getWorldDirection(camDir);
-      minimapBg.update(homeBox, dt);
+      // 지금 화면에 보이는 바닥 영역: 기준 높이는 궤도 카메라가 바라보는 점, 없으면(체험 모드) 데이터 바닥
+      const footprint = computeViewFootprint(
+        camera,
+        !walkActive && rig ? rig.controls.target.y : homeBox.min.y,
+        homeBox.getSize(minimapSize).length(),
+      );
+      // 멀리 빼서 화면이 데이터보다 넓어지면 미니맵 범위도 단계적으로 넓힌다 (배경 렌더와 오버레이가 같은 범위를 쓴다)
+      const extent = computeMinimapExtent(homeBox, footprint);
+      minimapBg.update(extent, dt);
       minimap.update({
         bounds: homeBox,
+        extent,
         cameraPosition: { x: camera.position.x, z: camera.position.z },
         headingRad: Math.atan2(camDir.x, -camDir.z),
+        footprint,
         // 메모를 미니맵 점으로 보여준다 (기존 앱은 POI 점)
         pois: annotationLayer ? annotationLayer.getAll().map((a) => ({ x: a.position.x, z: a.position.z })) : [],
       });
@@ -279,8 +321,9 @@ export function createTileViewer(container, options = {}) {
     memoRaycaster.setFromCamera(memoNdc, viewer.camera);
     const hit = memoRaycaster.intersectObjects(visible, false)[0];
     if (!hit) return null;
-    const saved = annotationLayer.getAll()[sprites.indexOf(hit.object)];
-    return saved ?? null;
+    const index = sprites.indexOf(hit.object);
+    const saved = annotationLayer.getAll()[index];
+    return saved ? { ...saved, index } : null;
   }
 
   // 도구(측정/메모)가 꺼져 있을 때 표면을 클릭하면 그 지점의 정보를 보여준다.
@@ -288,6 +331,7 @@ export function createTileViewer(container, options = {}) {
     if (tool || !layer) return;
     const memo = pickMemo(e);
     if (memo) {
+      selectMemo(memo.index); // 목록에서도 그 메모를 강조
       return ui.showPopup({ x: e.clientX, y: e.clientY }, [`메모: ${memo.text}`, ...describePoint(memo.position)]);
     }
     const hit = pickFromEvent(e);
@@ -703,6 +747,8 @@ export function createTileViewer(container, options = {}) {
       annotationLayer = null;
     }
     annotationScope = null;
+    selectedMemo = -1;
+    ui.setMemos([]);
     toGeo = null;
     ui.hidePopup();
     if (layer) {
@@ -1076,18 +1122,18 @@ export function createTileViewer(container, options = {}) {
       message: mode === 'geo' ? '' : '좌표가 없는 데이터(model 모드)에는 지도를 깔 수 없습니다.',
     });
 
-    // 메모: 아이콘 크기를 데이터 크기에 맞춘다 (미터 단위 geo 기준 20m였던 고정값을 일반화).
-    const iconSize = maxDim > 0 ? Math.min(Math.max(maxDim / 400, 0.5), 40) : 20;
-    annotationLayer = new AnnotationLayer({
-      id: `annotations-${layerSeq}`,
-      iconSize,
-      floatHeight: iconSize * 1.25,
-    });
+    // 메모: 핀은 데이터 크기와 상관없이 화면에서 일정한 크기로 보인다 (AnnotationLayer가 매 프레임 맞춘다).
+    annotationLayer = new AnnotationLayer({ id: `annotations-${layerSeq}` });
+    selectedMemo = -1;
     layerManager.add(annotationLayer);
     annotationScope = scope;
     const thisAnnotationLayer = annotationLayer;
     annotationTool = new AnnotationTool(thisAnnotationLayer, {
-      onAdded: () => persistence?.save(annotationScope, thisAnnotationLayer.getAll()),
+      onAdded: () => {
+        persistence?.save(annotationScope, thisAnnotationLayer.getAll());
+        selectedMemo = thisAnnotationLayer.getAll().length - 1;
+        refreshMemos();
+      },
     });
     if (tool === 'annotate') annotationTool.enable(viewer);
     buildMinimap();
@@ -1113,6 +1159,7 @@ export function createTileViewer(container, options = {}) {
       Promise.resolve(persistence.load(scope)).then((saved) => {
         if (annotationLayer !== thisAnnotationLayer) return; // 그 사이 다른 데이터로 바뀜
         for (const a of saved ?? []) thisAnnotationLayer.addAnnotation(a.position, a.text);
+        refreshMemos();
       });
     }
   }
@@ -1477,6 +1524,8 @@ export function createTileViewer(container, options = {}) {
       if (!annotationLayer) return;
       annotationLayer.clear();
       persistence?.save(annotationScope, []);
+      selectedMemo = -1;
+      refreshMemos();
     },
 
     /**

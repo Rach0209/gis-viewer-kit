@@ -1,68 +1,81 @@
 import * as THREE from 'three';
 import { LayerBase } from './LayerBase.js';
 import { disposeObject3D } from '../utils/dispose.js';
-import { updateMarkerVisibilityByScreenSize } from './markerScreenSize.js';
+import { worldSizeForScreenPx } from './markerScreenSize.js';
 
-const DEFAULT_EMOJI = '📝';
-const CONNECTOR_COLOR = 0xffee55;
+const PIN_FILL = '#ffd24a';
+const PIN_STROKE = '#1b2027';
+const SELECTED_SCALE = 1.35;
 
 /**
- * emoji를 캔버스에 그려 스프라이트(항상 카메라를 향하는 2D 아이콘) 텍스처로 만든다.
- * three.js에 텍스트/이모지를 직접 그리는 기본 기능이 없어서, 2D canvas에 그린 뒤
- * 텍스처로 씌우는 표준적인 방법을 쓴다. 스프라이트는 원뿔/구 메시와 달리 항상
- * 카메라 정면을 향해 그려지므로 어느 각도에서 봐도 이모지가 찌그러지지 않는다.
- * @param {string} emoji
- * @param {number} [sizePx]
+ * 번호가 적힌 핀 그림을 캔버스에 그려 스프라이트(항상 카메라를 향하는 2D 아이콘)로 만든다.
+ * 핀의 뾰족한 끝이 그림 맨 아래 가운데라서, 스프라이트의 `center`를 (0.5, 0)으로 두면
+ * 끝이 정확히 클릭한 지점에 놓인다. 번호는 화면 왼쪽의 메모 목록 번호와 같다.
+ * @param {number} number
  */
-function createEmojiSprite(emoji, sizePx = 64) {
+function createPinSprite(number) {
+  const size = 128;
   const canvas = document.createElement('canvas');
-  canvas.width = sizePx;
-  canvas.height = sizePx;
+  canvas.width = size;
+  canvas.height = size;
   const ctx = canvas.getContext('2d');
-  ctx.font = `${Math.floor(sizePx * 0.75)}px sans-serif`;
+  const cx = size / 2;
+  const cy = 50;
+  const r = 40;
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, Math.PI * 0.8, Math.PI * 0.2, false); // 위쪽 큰 원호
+  ctx.lineTo(cx, size - 4); // 뾰족한 끝
+  ctx.closePath();
+  ctx.fillStyle = PIN_FILL;
+  ctx.fill();
+  ctx.lineWidth = 6;
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = PIN_STROKE;
+  ctx.stroke();
+
+  const label = String(number);
+  ctx.fillStyle = PIN_STROKE;
+  ctx.font = `700 ${label.length >= 3 ? 34 : label.length === 2 ? 42 : 52}px system-ui, "Malgun Gothic", sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(emoji, sizePx / 2, sizePx / 2 + sizePx * 0.05);
+  ctx.fillText(label, cx, cy + 2);
 
   const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  // depthTest를 끄면 건물 뒤에 있어도 항상 보인다 (메모는 가려지면 안 된다).
   const material = new THREE.SpriteMaterial({ map: texture, depthTest: false });
   const sprite = new THREE.Sprite(material);
+  sprite.center.set(0.5, 0);
   sprite.renderOrder = 999;
   return sprite;
 }
 
 /**
- * 사용자가 클릭으로 남긴 현장 메모(짧은 텍스트)를 이모지 아이콘으로 표시하는 레이어.
+ * 사용자가 클릭으로 남긴 현장 메모(짧은 텍스트)를 번호 핀으로 표시하는 레이어.
  *
- * POI 마커처럼 표면에 딱 붙이지 않고 약간 띄워서(floatHeight) 보여주고, 실제 클릭
- * 지점(표면)까지 얇은 수직선으로 이어준다 -- 지도 앱의 "핀" 마커 같은 느낌이다.
- *
- * PoiMarkerLayer와 달리 생성 시점에 고정된 목록을 받지 않는다 -- addAnnotation()을
- * AnnotationTool이 클릭할 때마다 호출해 그때그때 늘어난다. 클릭/호버는 별도 코드가
- * 필요 없다: 아이콘 스프라이트를 만들 때 PickableRegistry에 메모 텍스트를 metadata로
- * 등록해두면 기존 ClickPopup/HoverHighlight가 다른 레이어와 똑같은 방식으로 보여준다
- * (연결선은 장식용이라 등록하지 않는다 -- 클릭 대상은 아이콘이면 충분하다).
+ * 핀은 카메라에서 멀어져도 화면에서 항상 같은 크기(기본 40px)로 보인다 -- 예전에는 월드 크기가
+ * 고정이라 조금만 멀어져도 작아져서 사라졌다. 크기는 매 프레임 update()에서 거리에 맞춰 다시 정한다.
+ * 클릭/호버는 별도 코드가 필요 없다: 스프라이트를 만들 때 PickableRegistry에 메모 텍스트를
+ * metadata로 등록해두면 기존 ClickPopup/HoverHighlight가 다른 레이어와 똑같이 보여준다.
  */
 export class AnnotationLayer extends LayerBase {
   /**
    * @param {Object} options
    * @param {string} options.id
-   * @param {string} [options.emoji] - 마커로 쓸 이모지. 기본 '📝'.
-   * @param {number} [options.iconSize] - 아이콘 스프라이트의 월드 크기(한 변), 로컬 좌표 단위. 기본 20.
-   * @param {number} [options.floatHeight] - 실제 클릭 지점 위로 아이콘을 띄우는 높이. 기본 25.
+   * @param {number} [options.pinPx] - 핀의 화면 높이(px). 기본 40.
    */
-  constructor({ id, emoji = DEFAULT_EMOJI, iconSize = 20, floatHeight = 25 }) {
+  constructor({ id, pinPx = 40 }) {
     super(id);
-    this._emoji = emoji;
-    this._iconSize = iconSize;
-    this._floatHeight = floatHeight;
+    this._pinPx = pinPx;
     this._viewer = null;
     this._nextIndex = 0;
     // getAll()로 그대로 내보내 localStorage에 저장할 수 있게, three.js 객체와 별개로
     // {position, text} 형태의 직렬화 가능한 목록도 함께 들고 있는다.
     this._annotations = [];
-    // 아이콘이 화면에서 너무 작아져 숨겨질 때 연결선도 같이 숨기기 위해 짝을 기억해둔다.
-    this._markerPairs = [];
+    /** annotations와 같은 순서의 스프라이트 */
+    this._sprites = [];
+    this._selected = -1;
   }
 
   /** @param {import('../core/Viewer.js').Viewer} viewer */
@@ -71,19 +84,23 @@ export class AnnotationLayer extends LayerBase {
   }
 
   /**
-   * PoiMarkerLayer와 같은 이유로, 카메라가 멀어져 아이콘이 화면에서 몇 픽셀 이하로
-   * 작아지면 숨긴다(렌더링과 클릭/호버 모두 함께 꺼짐, markerScreenSize.js 참고).
-   * 연결선은 그 자체로는 숨김 판정을 하지 않고, 짝지어진 아이콘의 상태를 그대로 따라간다.
+   * 매 프레임: 핀이 카메라 거리와 상관없이 화면에서 같은 크기로 보이게 크기를 다시 정한다.
    * @param {import('three').Camera} camera
    */
   update(camera) {
-    if (!this._viewer) return;
+    if (!this._viewer || !camera.isPerspectiveCamera) return;
     const viewportHeightPx = this._viewer.renderer.domElement.clientHeight;
-    const sprites = this._markerPairs.map((pair) => pair.sprite);
-    updateMarkerVisibilityByScreenSize(sprites, this._iconSize / 2, camera, viewportHeightPx);
-    for (const { sprite, connector } of this._markerPairs) {
-      connector.visible = sprite.visible;
-    }
+    this._sprites.forEach((sprite, i) => {
+      const distance = camera.position.distanceTo(sprite.position);
+      const world = worldSizeForScreenPx({
+        pixelSize: this._pinPx,
+        distance,
+        cameraFovDeg: camera.fov,
+        viewportHeightPx,
+      });
+      const k = world * (i === this._selected ? SELECTED_SCALE : 1);
+      sprite.scale.set(k, k, 1);
+    });
   }
 
   /** @param {import('../core/Viewer.js').Viewer} viewer */
@@ -97,25 +114,16 @@ export class AnnotationLayer extends LayerBase {
    * @returns {import('three').Sprite}
    */
   addAnnotation(position, text) {
-    const sprite = createEmojiSprite(this._emoji);
-    sprite.scale.set(this._iconSize, this._iconSize, 1);
-    sprite.position.set(position.x, position.y + this._floatHeight, position.z);
+    const sprite = createPinSprite(this._annotations.length + 1);
+    // 처음 프레임이 그려지기 전에도 보이도록 대충의 크기를 둔다 (update가 곧바로 맞춘다)
+    sprite.scale.set(1, 1, 1);
+    sprite.position.set(position.x, position.y, position.z);
     this.object3d.add(sprite);
 
-    const connectorGeometry = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(position.x, position.y, position.z),
-      new THREE.Vector3(position.x, position.y + this._floatHeight, position.z),
-    ]);
-    const connectorMaterial = new THREE.LineBasicMaterial({ color: CONNECTOR_COLOR, depthTest: false });
-    const connector = new THREE.Line(connectorGeometry, connectorMaterial);
-    connector.renderOrder = 998;
-    this.object3d.add(connector);
-
-    this._markerPairs.push({ sprite, connector });
-
     const id = `annotation-${this._nextIndex++}`;
-    this._viewer.pickableRegistry?.register(sprite, { layerId: this.id, id, note: text }, this.id);
+    this._viewer?.pickableRegistry?.register(sprite, { layerId: this.id, id, note: text }, this.id);
     this._annotations.push({ position: { x: position.x, y: position.y, z: position.z }, text });
+    this._sprites.push(sprite);
 
     return sprite;
   }
@@ -125,7 +133,21 @@ export class AnnotationLayer extends LayerBase {
     return this._annotations;
   }
 
-  /** 지금까지 남긴 메모를 전부 지운다 (마커, 연결선, 클릭/호버 등록 포함). */
+  /** 목록에서 고른 메모의 핀을 크게 보여 준다. 범위 밖이면 선택 해제. */
+  select(index) {
+    this._selected = Number.isInteger(index) && index >= 0 && index < this._annotations.length ? index : -1;
+  }
+
+  /** 메모 하나를 지운다. 뒤의 메모 번호가 한 칸씩 당겨지도록 핀을 다시 만든다. */
+  removeAt(index) {
+    if (!Number.isInteger(index) || index < 0 || index >= this._annotations.length) return false;
+    const rest = this._annotations.filter((_, i) => i !== index);
+    this.clear();
+    for (const a of rest) this.addAnnotation(a.position, a.text);
+    return true;
+  }
+
+  /** 지금까지 남긴 메모를 전부 지운다 (핀, 클릭/호버 등록 포함). */
   clear() {
     for (const child of [...this.object3d.children]) {
       disposeObject3D(child);
@@ -133,7 +155,9 @@ export class AnnotationLayer extends LayerBase {
     }
     this._viewer?.pickableRegistry?.unregisterByLayer(this.id);
     this._annotations = [];
-    this._markerPairs = [];
+    this._sprites = [];
+    this._selected = -1;
+    this._nextIndex = 0;
   }
 
   dispose() {

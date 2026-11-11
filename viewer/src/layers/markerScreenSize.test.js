@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeApparentRadiusPx, updateMarkerVisibilityByScreenSize } from './markerScreenSize.js';
+import { computeApparentRadiusPx, updateMarkerVisibilityByScreenSize, worldSizeForScreenPx } from './markerScreenSize.js';
 
 describe('computeApparentRadiusPx', () => {
   it('halves the apparent radius when distance doubles', () => {
@@ -62,5 +62,26 @@ describe('updateMarkerVisibilityByScreenSize', () => {
 
     expect(near.visible).toBe(true);
     expect(far.visible).toBe(false);
+  });
+});
+
+describe('worldSizeForScreenPx', () => {
+  it('is the inverse of computeApparentRadiusPx: the size comes back as the same pixels', () => {
+    const args = { distance: 137, cameraFovDeg: 60, viewportHeightPx: 720 };
+    const world = worldSizeForScreenPx({ ...args, pixelSize: 40 });
+    const px = computeApparentRadiusPx({ ...args, worldRadius: world });
+    expect(px).toBeCloseTo(40, 6);
+  });
+
+  it('grows in proportion to the distance, so the icon keeps the same size on screen', () => {
+    const near = worldSizeForScreenPx({ pixelSize: 40, distance: 50, cameraFovDeg: 60, viewportHeightPx: 720 });
+    const far = worldSizeForScreenPx({ pixelSize: 40, distance: 500, cameraFovDeg: 60, viewportHeightPx: 720 });
+    expect(far / near).toBeCloseTo(10, 6);
+  });
+
+  it('returns 0 for unusable input', () => {
+    expect(worldSizeForScreenPx({ pixelSize: 40, distance: 0, cameraFovDeg: 60, viewportHeightPx: 720 })).toBe(0);
+    expect(worldSizeForScreenPx({ pixelSize: 40, distance: 10, cameraFovDeg: 60, viewportHeightPx: 0 })).toBe(0);
+    expect(worldSizeForScreenPx({ pixelSize: 0, distance: 10, cameraFovDeg: 60, viewportHeightPx: 720 })).toBe(0);
   });
 });

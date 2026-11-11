@@ -80,13 +80,14 @@ export function createMinimap({ background, parent, inline = false } = {}) {
     },
     /**
      * @param {{
-     *   bounds: import('three').Box3,
+     *   bounds: import('three').Box3,   데이터 전체 범위 (사각형으로 그린다)
+     *   extent?: import('three').Box3,  미니맵에 보여줄 범위 (배경 렌더와 같은 값이어야 한다. 생략하면 bounds)
      *   cameraPosition: {x:number, z:number},
      *   headingRad: number,
      *   pois?: Array<{x:number, z:number}>,
      * }} state
      */
-    update({ bounds, cameraPosition, headingRad, pois = [] }) {
+    update({ bounds, extent = bounds, cameraPosition, headingRad, pois = [], footprint = null }) {
       ctx.clearRect(0, 0, SIZE, SIZE);
       if (bounds.isEmpty()) return;
 
@@ -96,13 +97,31 @@ export function createMinimap({ background, parent, inline = false } = {}) {
         ctx.drawImage(background.canvas, 0, 0, SIZE, SIZE);
       }
 
-      const proj = computeMinimapProjection(bounds, SIZE);
+      // 투영은 보여줄 범위(extent)로, 사각형은 데이터 범위(bounds)로. 범위를 넓히지 않았다면 둘은 같다.
+      const proj = computeMinimapProjection(extent, SIZE);
 
       // 데이터 범위 사각형
       const topLeft = toMinimapXY(bounds.min.x, bounds.min.z, proj);
       const bottomRight = toMinimapXY(bounds.max.x, bounds.max.z, proj);
       ctx.strokeStyle = 'rgba(255,255,255,0.35)';
       ctx.strokeRect(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y);
+
+      // 지금 화면에 보이는 영역 (확대하면 작아지고 멀리 빼면 커진다)
+      if (footprint && footprint.length >= 3) {
+        ctx.beginPath();
+        footprint.forEach((pt, i) => {
+          const p = toMinimapXY(pt.x, pt.z, proj);
+          if (i === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        });
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(58,160,255,0.2)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(58,160,255,0.9)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
 
       // POI 점
       ctx.fillStyle = '#ffaa00';

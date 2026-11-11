@@ -39,6 +39,19 @@ const CSS = `
 .tvk-pad{display:grid;grid-template-columns:repeat(3,34px);grid-template-areas:". n ." "w . e" ". s .";gap:3px}
 .tvk-pad .tvk-btn{padding:2px 0;text-align:center}
 .tvk-pad-n{grid-area:n}.tvk-pad-w{grid-area:w}.tvk-pad-e{grid-area:e}.tvk-pad-s{grid-area:s}
+.tvk-memos{width:260px;max-width:100%;background:rgba(20,22,26,.92);border:1px solid rgba(255,255,255,.2);border-radius:4px}
+.tvk-memos summary{padding:6px 12px;cursor:pointer;font-weight:600;list-style:none}
+.tvk-memos summary::-webkit-details-marker{display:none}
+.tvk-memos summary::after{content:"▾";float:right;opacity:.6}
+.tvk-memos:not([open]) summary::after{content:"▸"}
+.tvk-memo-list{max-height:min(260px,40vh);overflow:auto;margin:0;padding:0 6px 6px;list-style:none}
+.tvk-memo-item{display:flex;align-items:flex-start;gap:8px;padding:5px 6px;border-radius:4px;cursor:pointer}
+.tvk-memo-item:hover{background:rgba(255,255,255,.08)}
+.tvk-memo-item[aria-current="true"]{background:rgba(47,143,216,.35)}
+.tvk-memo-no{flex:none;min-width:22px;height:22px;padding:0 4px;box-sizing:border-box;border-radius:11px;background:#ffd24a;color:#1b2027;font-weight:700;font-size:12px;line-height:22px;text-align:center}
+.tvk-memo-text{flex:1;min-width:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow-wrap:anywhere}
+.tvk-memo-del{flex:none;width:22px;height:22px;padding:0;border:0;border-radius:4px;background:transparent;color:rgba(232,237,240,.55);font:16px/1 system-ui;cursor:pointer}
+.tvk-memo-del:hover{background:rgba(229,100,90,.35);color:#fff}
 .tvk-bm{margin:2px 0 4px 22px;display:flex;flex-direction:column;gap:4px}
 .tvk-bm-row{display:flex;gap:4px}
 .tvk-bm select,.tvk-bm input[type=text],.tvk-bm input[type=password],.tvk-bm input[type=number]{min-width:0;flex:1;padding:3px 6px;background:#14191d;color:inherit;border:1px solid #2b353c;border-radius:3px;font:inherit}
@@ -431,8 +444,16 @@ export function createKitUi(container, handlers) {
     if (!on && dragBtn.getAttribute('aria-pressed') === 'true') handlers.onEditDragToggle?.(false);
   }
 
+  // ---- 메모 목록: 메모가 하나라도 있으면 보인다. 줄을 누르면 그 메모로 이동, ×는 그 메모만 지움 ----
+  const memosBox = el('details', 'tvk-memos');
+  memosBox.open = true;
+  memosBox.hidden = true;
+  const memosTitle = el('summary', null, '메모');
+  const memoList = el('ul', 'tvk-memo-list');
+  memosBox.append(memosTitle, memoList);
+
   const left = el('div', 'tvk-left');
-  left.append(toolbar, layers, edit);
+  left.append(toolbar, layers, edit, memosBox);
   const attrib = el('div', 'tvk-attrib');
   attrib.hidden = true;
 
@@ -933,6 +954,38 @@ export function createKitUi(container, handlers) {
     },
     setPerf(p) {
       showPerf(p);
+    },
+    /**
+     * 메모 목록을 갱신한다. 없으면 패널을 숨긴다. 글자는 textContent로만 넣는다.
+     * @param {Array<{text:string}>} items
+     * @param {number} [selected] 강조할 번호(0부터), 없으면 -1
+     */
+    setMemos(items, selected = -1) {
+      memoList.replaceChildren();
+      memosBox.hidden = items.length === 0;
+      memosTitle.textContent = `메모 ${items.length}개`;
+      items.forEach((m, i) => {
+        const li = el('li', 'tvk-memo-item');
+        li.tabIndex = 0;
+        li.title = '누르면 이 메모로 이동합니다';
+        if (i === selected) li.setAttribute('aria-current', 'true');
+        const go = () => handlers.onMemoSelect?.(i);
+        li.addEventListener('click', go);
+        li.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') go();
+        });
+        const del = el('button', 'tvk-memo-del', '×');
+        del.type = 'button';
+        del.title = '이 메모 지우기';
+        del.setAttribute('aria-label', `메모 ${i + 1} 지우기`);
+        del.addEventListener('click', (e) => {
+          e.stopPropagation();
+          handlers.onMemoDelete?.(i);
+        });
+        li.append(el('span', 'tvk-memo-no', String(i + 1)), el('span', 'tvk-memo-text', m.text), del);
+        memoList.appendChild(li);
+        if (i === selected) li.scrollIntoView?.({ block: 'nearest' });
+      });
     },
     setMinimapPressed(on) {
       buttons.minimap.setAttribute('aria-pressed', String(on));

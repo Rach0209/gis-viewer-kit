@@ -16,6 +16,17 @@ export function computeApparentRadiusPx({ worldRadius, distance, cameraFovDeg, v
 }
 
 /**
+ * 화면에서 항상 `pixelSize` 픽셀로 보이게 하려면 카메라에서 `distance`만큼 떨어진 물체의
+ * 월드 크기가 얼마여야 하는가 (computeApparentRadiusPx의 역). 메모 핀이 멀리서도 작아지지 않게 쓴다.
+ * @returns {number} 월드 단위 크기. distance가 0 이하이거나 입력이 잘못되면 0.
+ */
+export function worldSizeForScreenPx({ pixelSize, distance, cameraFovDeg, viewportHeightPx }) {
+  if (!(distance > 0) || !(viewportHeightPx > 0) || !(pixelSize > 0)) return 0;
+  const fovRad = (cameraFovDeg * Math.PI) / 180;
+  return (pixelSize * 2 * distance * Math.tan(fovRad / 2)) / viewportHeightPx;
+}
+
+/**
  * 마커 mesh들을, 화면상 반지름이 minScreenRadiusPx보다 작아지면 숨긴다(visible=false).
  * three.js Raycaster는 visible=false인 객체의 raycast를 건너뛰므로(Raycaster 내부
  * intersect()가 최상단에서 확인), 이 한 줄로 렌더링뿐 아니라 클릭/호버까지 함께
