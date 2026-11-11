@@ -29,7 +29,7 @@ export default defineConfig({
         const dist = join(root, 'dist-site');
         if (!existsSync(join(dist, 'kit-demo.html'))) throw new Error('빌드 결과에 kit-demo.html 이 없습니다');
         renameSync(join(dist, 'kit-demo.html'), join(dist, 'index.html'));
-        for (const name of ['draco', 'basis']) {
+        for (const name of ['draco', 'basis', 'samples']) {
           const from = join(root, 'public', name);
           if (!existsSync(from)) throw new Error(`디코더 폴더가 없습니다: ${from}`);
           cpSync(from, join(dist, name), { recursive: true });

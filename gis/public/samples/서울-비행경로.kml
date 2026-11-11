@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>서울 상공 비행 경로 예제</name>
+  <Placemark><name>이륙 (높이 100 m)</name><Point><altitudeMode>absolute</altitudeMode><coordinates>126.92460,37.52850,100</coordinates></Point></Placemark>
+  <Placemark><name>착륙 (높이 100 m)</name><Point><altitudeMode>absolute</altitudeMode><coordinates>127.00960,37.54650,100</coordinates></Point></Placemark>
+  <Placemark><name>비행 경로 (높이 100~300 m)</name><LineString><altitudeMode>absolute</altitudeMode><coordinates>126.92460,37.52850,100 126.92814,37.53080,126 126.93168,37.53300,152 126.93523,37.53499,177 126.93877,37.53670,200 126.94231,37.53805,222 126.94585,37.53900,241 126.94939,37.53955,259 126.95293,37.53970,273 126.95647,37.53949,285 126.96002,37.53900,293 126.96356,37.53830,298 126.96710,37.53750,300 126.97064,37.53670,298 126.97418,37.53600,293 126.97772,37.53551,285 126.98127,37.53530,273 126.98481,37.53545,259 126.98835,37.53600,241 126.99189,37.53695,222 126.99543,37.53830,200 126.99898,37.54001,177 127.00252,37.54200,152 127.00606,37.54420,126 127.00960,37.54650,100</coordinates></LineString></Placemark>
+  <Placemark><name>상공 120 m의 구역</name><Polygon><altitudeMode>absolute</altitudeMode><outerBoundaryIs><LinearRing><coordinates>126.9700,37.5500,120 126.9900,37.5500,120 126.9900,37.5620,120 126.9700,37.5620,120 126.9700,37.5500,120</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>
+</Document></kml>

@@ -12,9 +12,15 @@ import { nudgeLonLat, pickEditable, sanitizeEdit } from './modelEdit.js';
 import { showEditPanel } from './modelEditUi.js';
 import { isVectorFileName } from './vectorNames.js';
 import { MOUSE_HINT, applyMouseScheme } from './mouseScheme.js';
+import { enhanceCrsSelect } from '../../viewer/src/kit/crsPicker.js';
 import { currentPerf, demLimitHint, readEnv, resolvePerf, savePref } from '../../viewer/src/kit/perfMode.js';
-import { openVectorFiles, readDemTextParallel, readDemTiff } from './work/client.js';
-import { applyStyle, createVectorDataSource, entityProperties, setRuleVisible, updateScale } from './vectorLayer.js';
+import { openRasterFile, openVectorFiles, probeTiff, readDemTextParallel, readDemTiff } from './work/client.js';
+import { showRasterPanel } from './rasterUi.js';
+import { describePlacement } from './exportData.js';
+import { SAMPLES, sampleUrl } from './samples.js';
+import { copyText, downloadText, showExportPanel } from './exportUi.js';
+import { resolveCrsInput } from '../../viewer/src/kit/crsLookup.js';
+import { applyStyle, createVectorDataSource, entityProperties, restyle, setRuleVisible, updateScale } from './vectorLayer.js';
 import { parseSld } from './sld.js';
 import { showVectorPanel } from './vectorUi.js';
 import { createDemTerrain, demInfoRows } from './demTerrain.js';
@@ -176,10 +182,11 @@ function renderLayers(list) {
     cb.checked = l.visible;
     cb.setAttribute('aria-label', `${l.name} 표시`);
     cb.addEventListener('change', () => layers.setVisible(l.id, cb.checked));
-    const name = el('span', 'name', `${{ tileset: '[3D] ', model: '[glb] ', terrain: '[지형] ' }[l.kind] ?? '[벡터] '}${l.name}`);
+    const name = el('span', 'name', `${{ tileset: '[3D] ', model: '[glb] ', terrain: '[지형] ', raster: '[이미지] ' }[l.kind] ?? '[벡터] '}${l.name}`);
     name.title = l.name;
     row.append(cb, name, button('이동', () => layers.zoomTo(l.id), 'small'));
     if (l.kind !== 'vector') row.append(button('정보', () => showLayerInfo(l.id), 'small'));
+    if (l.kind === 'vector') row.append(button('저장', () => openExport(l.id), 'small'));
     if (l.kind === 'model') row.append(button('편집', () => openEdit(l.id), 'small'));
     if (l.kind === 'terrain') row.append(shadeToggle(l), exaggerationSelect(l));
     if (l.kind === 'vector') {
@@ -206,9 +213,89 @@ function renderLayers(list) {
       layers.remove(l.id);
     }, 'small'));
     listEl.appendChild(row);
+    if (l.kind === 'vector' && l.meta?.hasHeights) listEl.appendChild(heightToggle(l)); // 한 줄이 이미 꽉 차서 아래에 따로 둔다
     if (memoOpen.has(l.id)) listEl.appendChild(memoEl(l, memoBtn));
     if (l.style && legendOpen.has(l.id)) listEl.appendChild(legendEl(l));
   }
+}
+/**
+ * 높이가 든 벡터 레이어 줄의 "높이" 토글: 끄면 지면에 붙이고, 켜면 파일의 높이대로 그린다(+보정 m).
+ * 원본 자료(layer.data)는 높이를 그대로 갖고 있어서, 바꿀 때마다 지도 위 도형만 다시 만들어 바꿔 끼운다.
+ */
+function heightToggle(l) {
+  const box = el('div', 'hrow');
+  box.style.cssText = 'display:flex;align-items:center;gap:6px;padding:0 0 3px 19px;font-size:12px;flex-wrap:wrap';
+  box.title = '켜면 파일에 든 높이대로 그리고(지면에 붙이지 않음), 끄면 모두 지면에 붙입니다. 보정(m)은 해수면 기준 표고를 지도의 타원체고에 맞출 때 더하는 값입니다 (한국 약 25~30 m).';
+  const label = el('label');
+  label.style.cssText = 'display:flex;align-items:center;gap:4px;cursor:pointer';
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = !!l.meta.useHeights;
+  cb.setAttribute('aria-label', `${l.name} 파일의 높이 사용`);
+  label.append(cb, '파일의 높이 사용 (끄면 지면에 붙임)');
+  const offLabel = el('label');
+  offLabel.style.cssText = 'display:flex;align-items:center;gap:3px';
+  const off = document.createElement('input');
+  off.type = 'number';
+  off.step = 'any';
+  off.value = String(l.meta.heightOffset ?? 0);
+  off.style.cssText = 'width:56px;padding:0 2px;font-size:12px';
+  off.setAttribute('aria-label', `${l.name} 높이 보정(m)`);
+  offLabel.append('보정', off, 'm');
+  offLabel.hidden = !cb.checked;
+  const apply = () => {
+    cb.disabled = true;
+    off.disabled = true;
+    return applyLayerHeights(l.id, cb.checked, Number(off.value) || 0);
+  };
+  cb.addEventListener('change', () => {
+    offLabel.hidden = !cb.checked;
+    apply();
+  });
+  off.addEventListener('change', () => {
+    if (cb.checked) apply();
+  });
+  box.append(label, offLabel);
+  return box;
+}
+
+const heightBusy = new Set(); // 도형을 다시 만드는 중인 레이어 id
+async function applyLayerHeights(layerId, useHeights, heightOffset) {
+  const layer = layers.get(layerId);
+  if (!layer?.data || heightBusy.has(layerId)) return;
+  heightBusy.add(layerId);
+  setStatus('도형을 다시 만드는 중…', 'busy');
+  try {
+    const ds = await createVectorDataSource(layer.data, { name: layer.name, color: layer.object.__baseColor, useHeights, heightOffset });
+    const style = layer.style ? restyle(ds, layer.style, layer.data) : null; // 지도에 올리기 전에 칠해야 빠르다
+    await viewer.dataSources.add(ds);
+    const now = layers.get(layerId);
+    if (!now) {
+      viewer.dataSources.remove(ds, true); // 그사이 레이어를 지웠다
+      return;
+    }
+    layers.replaceObject(layerId, ds, { meta: { ...now.meta, useHeights, heightOffset }, style });
+    if (style?.hasScale) updateScaleAll();
+    setStatus(useHeights ? `파일의 높이대로 그립니다${heightOffset ? ` (보정 ${heightOffset > 0 ? '+' : ''}${heightOffset} m)` : ''}.` : '지면에 붙여 그립니다.');
+  } catch (e) {
+    setStatus(errMsg(e), 'error');
+    layers.refresh(); // 토글을 원래 상태로 되돌린다
+  } finally {
+    heightBusy.delete(layerId);
+  }
+}
+
+/** 벡터 레이어를 GeoJSON/CSV 로 내려받는 패널 */
+function openExport(layerId) {
+  const layer = layers.get(layerId);
+  if (!layer?.data) return;
+  closePlace();
+  showExportPanel(placeEl, { name: layer.name, collection: layer.data, count: layer.data.features?.length ?? 0 }, {
+    onDone: (msg) => {
+      setStatus(msg);
+    },
+    onCancel: closePlace,
+  });
 }
 /** 레이어 메모 입력칸: 입력하는 대로 저장하고, 목록은 다시 그리지 않는다 (글을 쓰다 포커스를 잃지 않게) */
 function memoEl(l, memoBtn) {
@@ -756,15 +843,74 @@ function renderInfo(title, sections) {
   for (const sec of sections) {
     if (sec.heading) infoEl.append(el('div', 'sub', sec.heading));
     if (sec.note) infoEl.append(el('div', 'sub', sec.note));
-    if (!sec.rows?.length) continue;
-    const table = document.createElement('table');
-    for (const [k, v] of sec.rows) {
-      const tr = document.createElement('tr');
-      tr.append(el('td', null, k), el('td', null, v));
-      table.appendChild(tr);
+    if (sec.rows?.length) {
+      const table = document.createElement('table');
+      for (const [k, v] of sec.rows) {
+        const tr = document.createElement('tr');
+        tr.append(el('td', null, k), el('td', null, v));
+        table.appendChild(tr);
+      }
+      infoEl.append(table);
     }
-    infoEl.append(table);
+    if (sec.copy) infoEl.append(copyButton(() => sec.copy, '좌표 복사'));
+    if (sec.node) infoEl.append(sec.node);
   }
+}
+
+/** 누르면 글을 클립보드에 복사하는 작은 버튼 (복사 결과는 아래 상태줄에 알린다) */
+function copyButton(getText, label) {
+  return button(label, async () => {
+    const text = getText();
+    setStatus((await copyText(text)) ? `복사했습니다: ${text.length > 60 ? `${text.slice(0, 60)}…` : text}` : '복사하지 못했습니다. 브라우저가 클립보드 접근을 막았습니다.', 'idle');
+  }, 'small');
+}
+
+/** glb 모델의 위치를 고른 좌표계로 보여 주고, 복사·내려받기를 한다 (다른 시스템에서 이 좌표를 쓰려고) */
+function placementBlock(layer) {
+  const box = el('div', 'sample');
+  const sel = document.createElement('select');
+  for (const c of CRS_LIST) {
+    const o = document.createElement('option');
+    o.value = c.code;
+    o.textContent = c.code.replace('EPSG:', 'EPSG ') + (c.geographic ? ' 경위도' : '');
+    o.title = c.label;
+    sel.appendChild(o);
+  }
+  enhanceCrsSelect(sel, { optionText: (c) => (c.code.startsWith('EPSG:') ? c.code.replace('EPSG:', 'EPSG ') : c.label) });
+  sel.value = displayCrs;
+  const pre = document.createElement('pre');
+  pre.style.cssText = 'margin:4px 0;white-space:pre-wrap;font:12px/1.5 ui-monospace,Consolas,monospace;user-select:all';
+  const current = () => describePlacement(layers.get(layer.id)?.meta ?? layer.meta, sel.value);
+  const refresh = () => {
+    try {
+      pre.textContent = current().text;
+    } catch (e) {
+      pre.textContent = `이 좌표계로 바꿀 수 없습니다 (${e.message})`;
+    }
+  };
+  sel.addEventListener('change', refresh);
+  refresh();
+  const row = el('div');
+  row.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;align-items:center';
+  row.append(
+    el('span', null, '좌표계'),
+    sel,
+    copyButton(() => current().xyText, 'X, Y 복사'),
+    copyButton(() => current().text, '전체 복사'),
+    button('JSON 저장', () => {
+      const d = current();
+      downloadText(`${layer.name.replace(/\.[^.]+$/, '')}_위치.json`, d.json, 'application/json');
+      setStatus(`저장했습니다: ${layer.name.replace(/\.[^.]+$/, '')}_위치.json (${sel.value})`);
+    }, 'small'),
+  );
+  box.append(row, pre);
+  return box;
+}
+
+/** 클릭·마우스 위치 좌표를 "X, Y" 글로 (지금 고른 좌표계 기준, 복사용) */
+function coordCopyText(w) {
+  const d = describeCoord(displayCrs, w.lon, w.lat);
+  return `${d.x}, ${d.y}`;
 }
 
 /** 클릭한 지점의 좌표 [이름, 값] (고른 좌표계와 경위도·높이) */
@@ -802,7 +948,7 @@ function showClickInfo(position) {
     const layer = layerOfObject(target.model);
     if (layer) {
       title = layer.name;
-      sections.push({ heading: 'glb 모델', rows: modelInfoRows(layer) });
+      sections.push({ heading: 'glb 모델', rows: modelInfoRows(layer) }, { heading: '이 모델의 좌표 (복사·저장)', node: placementBlock(layer) });
     } else {
       title = '3D 모델';
       sections.push({ heading: '3D Tiles 안의 모델 (속성 없음)', rows: [] });
@@ -812,7 +958,7 @@ function showClickInfo(position) {
     title = layer?.name ?? '3D Tiles';
     sections.push({ heading: '3D Tiles (이 부분에는 피처 속성이 없습니다)', rows: tilesetInfoRows(target.tileset, layer?.meta) });
   }
-  if (w) sections.push({ heading: '클릭 지점', rows: pointRows(w) });
+  if (w) sections.push({ heading: '클릭 지점', rows: pointRows(w), copy: coordCopyText(w) });
   if (!sections.length) return closeInfo();
   return renderInfo(title, sections);
 }
@@ -823,7 +969,8 @@ function showLayerInfo(layerId) {
   if (!layer) return;
   clearSelection();
   if (layer.kind === 'tileset') renderInfo(layer.name, [{ heading: '3D Tiles 정보', rows: tilesetInfoRows(layer.object, layer.meta) }]);
-  else if (layer.kind === 'model') renderInfo(layer.name, [{ heading: 'glb 모델', rows: modelInfoRows(layer) }]);
+  else if (layer.kind === 'model') renderInfo(layer.name, [{ heading: 'glb 모델', rows: modelInfoRows(layer) }, { heading: '이 모델의 좌표 (복사·저장)', node: placementBlock(layer) }]);
+  else if (layer.kind === 'raster') renderInfo(layer.name, [{ heading: '이미지', rows: [['원본 좌표계', layer.meta.crs], ['지도에 맞춘 크기', layer.meta.size], ['범위(경도·위도)', `${layer.meta.extent.map((v) => v.toFixed(5)).join(', ')} (서, 남, 동, 북)`]] }]);
   else if (layer.kind === 'terrain' && layer.meta.source === 'tiles') renderInfo(layer.name, [{ heading: '지형 타일', rows: terrainTilesInfoRows(layer.data) }]);
   else if (layer.kind === 'terrain') renderInfo(layer.name, [{ heading: '지형(DEM)', rows: demInfoRows(layer.data, layer.meta) }]);
 }
@@ -872,8 +1019,108 @@ function exaggerationSelect(l) {
 // ---------------------------------------------------------------- 지형(DEM)
 /** GeoTIFF 한 개를 읽어 열기 패널을 띄운다 */
 async function startDem(file) {
+  // 색 이미지(항공·위성 사진) GeoTIFF 는 지형이 아니라 지도 위에 겹치는 이미지로 연다
+  try {
+    if ((await probeTiff(file)).isImage) return startRaster(file);
+  } catch {
+    /* GeoTIFF 가 아니면 지형 읽기가 알맞은 오류를 알려 준다 */
+  }
   return openDem(() => readDemTiff(file, demLimits()), file.name);
 }
+
+// ---------------------------------------------------------------- 이미지 (항공·위성 사진, 월드파일 이미지)
+/** 이미지 하나(GeoTIFF 또는 PNG/JPG + 월드파일 + 선택적으로 .prj)를 읽어 열기 패널을 띄운다 */
+async function startRaster(imageFile, { worldFile = null, prjFile = null } = {}) {
+  let opened = null;
+  try {
+    setStatus(`이미지 읽는 중… ${imageFile.name}`, 'busy');
+    opened = await openRasterFile(imageFile, { worldFile, limits: demLimits() });
+    let info = opened.info;
+    if (prjFile) {
+      // 같이 고른 .prj 가 있으면 좌표계를 거기서 읽는다 (읽지 못하면 아래에서 직접 고른다)
+      try {
+        const crs = await resolveCrsInput(new TextDecoder('utf-8').decode(await prjFile.arrayBuffer()));
+        info = { ...info, crs: crs.code };
+      } catch {
+        /* 직접 고르게 둔다 */
+      }
+    }
+    closePlace();
+    showRasterPanel(placeEl, info, {
+      onCancel: () => {
+        opened.release();
+        closePlace();
+        advanceQueue();
+      },
+      onConfirm: async ({ crs, transparentBlack, opacity }) => {
+        setStatus('이미지를 지도에 맞추는 중…', 'busy');
+        const out = await opened.project({ crs, transparentBlack });
+        opened.release();
+        await addRasterLayer(info.name, out, { crs, opacity });
+        closePlace();
+        advanceQueue();
+      },
+    });
+    placeCleanup = () => opened.release();
+    setStatus('');
+  } catch (e) {
+    opened?.release();
+    setStatus(errMsg(e), 'error');
+    advanceQueue();
+  }
+}
+
+/** 경위도 격자로 다시 그린 RGBA 를 Cesium 이미지 레이어로 올린다 */
+async function addRasterLayer(name, out, { crs, opacity }) {
+  const canvas = document.createElement('canvas');
+  canvas.width = out.outW;
+  canvas.height = out.outH;
+  canvas.getContext('2d').putImageData(new ImageData(out.rgba, out.outW, out.outH), 0, 0);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  const url = URL.createObjectURL(blob);
+  const [w, s, e, n] = out.extent;
+  const rectangle = Cesium.Rectangle.fromDegrees(w, s, e, n);
+  const provider = await Cesium.SingleTileImageryProvider.fromUrl(url, { rectangle });
+  const layer = new Cesium.ImageryLayer(provider, { alpha: opacity });
+  viewer.imageryLayers.add(layer); // add 는 아무것도 돌려주지 않아서 레이어를 먼저 만들어 둔다
+  layers.add({ name, kind: 'raster', object: layer, host: 'imagery', meta: { crs, extent: out.extent, size: `${out.outW}×${out.outH}` }, dispose: () => URL.revokeObjectURL(url) });
+  setStatus(`이미지를 열었습니다: ${name} (${crs}, ${out.outW}×${out.outH})`);
+  viewer.camera.flyTo({ destination: rectangle, duration: 0.8 });
+}
+
+/** "이미지 열기"로 고른 파일들: PNG/JPG 는 같은 이름의 월드파일과 짝지어, GeoTIFF 는 그대로 */
+function openImageFiles(files) {
+  const byName = new Map(files.map((f) => [f.name, f]));
+  const plan = classifyDrop([...byName.keys()]);
+  const jobs = [];
+  for (const r of plan.rasters) {
+    const [img, world, prj] = r.paths;
+    jobs.push(() => startRaster(byName.get(img), { worldFile: byName.get(world), prjFile: prj ? byName.get(prj) : null }));
+  }
+  for (const d of plan.dems) if (/\.tiff?$/i.test(d.path)) jobs.push(() => startRaster(byName.get(d.path)));
+  if (!jobs.length) {
+    return setStatus('열 수 있는 이미지가 없습니다. PNG/JPG는 같은 이름의 월드파일(.pgw/.jgw/.wld)을 같이 고르세요. (위치 정보가 든 GeoTIFF는 그것만 고르면 됩니다)', 'error');
+  }
+  queue.push(...jobs.slice(1));
+  return jobs[0]();
+}
+
+$('btn-img').addEventListener('click', () => {
+  queue.length = 0;
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.multiple = true;
+  input.accept = '.tif,.tiff,.png,.jpg,.jpeg,.gif,.bmp,.pgw,.pngw,.jgw,.jpgw,.wld,.tfw,.prj';
+  input.style.display = 'none';
+  input.addEventListener('change', () => {
+    const files = [...(input.files ?? [])];
+    input.remove();
+    if (files.length) openImageFiles(files);
+  });
+  input.addEventListener('cancel', () => input.remove());
+  document.body.appendChild(input);
+  input.click();
+});
 
 /** 글자(XYZ 점 목록 여러 개 / ASCII 격자) DEM 파일들을 하나의 지형으로 읽어 열기 패널을 띄운다 */
 async function startDemText(files) {
@@ -990,7 +1237,7 @@ $('btn-dem').addEventListener('click', () => {
   input.click();
 });
 
-/** 선택한 파일들(GeoJSON, SHP 묶음, ZIP)을 읽어 열기 패널을 띄운다 */
+/** 선택한 파일들(SHP 묶음, GeoJSON, KML/KMZ, GPX, CSV, ZIP)을 읽어 열기 패널을 띄운다 */
 async function startVector(fileList) {
   const files = [...fileList];
   let opened = null;
@@ -1001,7 +1248,7 @@ async function startVector(fileList) {
     const { items, skipped, errors } = opened;
     if (!items.length) {
       opened.release();
-      setStatus(errors[0] ?? 'GeoJSON 또는 SHP(.shp)를 찾지 못했습니다. SHP는 .shp와 함께 .dbf/.prj 파일도 같이 선택하세요(또는 .zip).', 'error');
+      setStatus(errors[0] ?? '벡터 자료(SHP, GeoJSON, KML/KMZ, GPX, CSV)를 찾지 못했습니다. SHP는 .shp와 함께 .dbf/.prj 파일도 같이 선택하세요(또는 .zip).', 'error');
       return advanceQueue();
     }
     const styles = [];
@@ -1026,10 +1273,10 @@ async function startVector(fileList) {
         try {
           let last = null;
           for (const r of results) {
-            const ds = await createVectorDataSource(r.collection, { name: r.name });
+            const ds = await createVectorDataSource(r.collection, { name: r.name, useHeights: r.useHeights, heightOffset: r.heightOffset });
             const styleState = r.style ? applyStyle(ds, r.style, r.collection) : null; // 지도에 올리기 전에 칠해야 빠르다
             await viewer.dataSources.add(ds);
-            const added = layers.add({ name: r.name, kind: 'vector', object: ds, host: 'dataSources', meta: r.info, style: styleState, data: r.collection });
+            const added = layers.add({ name: r.name, kind: 'vector', object: ds, host: 'dataSources', meta: { ...r.info, useHeights: !!r.useHeights, heightOffset: r.heightOffset ?? 0 }, style: styleState, data: r.collection });
             if (styleState?.hasScale) updateScaleAll();
             if (styleState) {
               legendOpen.add(added.id);
@@ -1061,7 +1308,7 @@ $('btn-vec').addEventListener('click', () => {
   const input = document.createElement('input');
   input.type = 'file';
   input.multiple = true;
-  input.accept = '.geojson,.json,.zip,.shp,.dbf,.prj,.cpg,.shx,.sld';
+  input.accept = '.geojson,.json,.zip,.kml,.kmz,.gpx,.csv,.shp,.dbf,.prj,.cpg,.shx,.sld';
   input.style.display = 'none';
   input.addEventListener('change', () => {
     const files = [...(input.files ?? [])];
@@ -1119,14 +1366,14 @@ async function openDropped(src) {
   const plan = classifyDrop([...src.files.keys()]);
   const total = itemCount(plan);
   if (!total) {
-    return setStatus('열 수 있는 파일이 없습니다. 3D Tiles 폴더, 지형 타일 폴더(layer.json), .glb, GeoJSON, SHP(.shp + .dbf/.prj), ZIP, 지형(.tif)을 놓아 주세요.', 'error');
+    return setStatus('열 수 있는 파일이 없습니다. 3D Tiles 폴더, 지형 타일 폴더(layer.json), .glb, SHP(.shp + .dbf/.prj), GeoJSON, KML/KMZ, GPX, CSV(좌표), ZIP, 지형(.tif), 항공·위성 사진(GeoTIFF 또는 PNG/JPG + 월드파일)을 놓아 주세요.', 'error');
   }
   const vectorFiles = (idx) => {
     const paths = new Set(plan.styles); // SLD는 같이 넘겨서 열기 패널에서 고르게 한다
     for (const i of idx) for (const p of plan.vectors[i].paths) paths.add(p);
     return [...paths].map((p) => ({ name: p, arrayBuffer: () => src.files.get(p).arrayBuffer(), blob: src.files.get(p) }));
   };
-  const run = async ({ tilesets, terrains = [], models, dems = [], vectors }) => {
+  const run = async ({ tilesets, terrains = [], models, dems = [], rasters = [], vectors }) => {
     closePlace();
     // 3D Tiles는 바로 열고, 벡터와 glb는 패널에서 정하는 것이 있으니 차례로 이어 간다
     for (const i of tilesets) {
@@ -1150,13 +1397,17 @@ async function openDropped(src) {
       const picked = dems.map((i) => src.files.get(plan.dems[i].path));
       queue.push(() => startDemFiles(picked));
     }
+    for (const i of rasters) {
+      const [img, world, prj] = plan.rasters[i].paths;
+      queue.push(() => startRaster(src.files.get(img), { worldFile: src.files.get(world), prjFile: prj ? src.files.get(prj) : null }));
+    }
     if (vectors.length) await startVector(vectorFiles(vectors));
     else advanceQueue();
   };
 
   // 벡터뿐이거나 하나뿐이면 묻지 않고 연다
   if (total === 1 || (kindCount(plan) === 1 && plan.vectors.length)) {
-    return run({ tilesets: plan.tilesets.map((_, i) => i), terrains: plan.terrains.map((_, i) => i), models: plan.models.map((_, i) => i), dems: plan.dems.map((_, i) => i), vectors: plan.vectors.map((_, i) => i) });
+    return run({ tilesets: plan.tilesets.map((_, i) => i), terrains: plan.terrains.map((_, i) => i), models: plan.models.map((_, i) => i), dems: plan.dems.map((_, i) => i), rasters: plan.rasters.map((_, i) => i), vectors: plan.vectors.map((_, i) => i) });
   }
   showDropChoices(placeEl, plan, { onOpen: run, onCancel: closePlace });
   return undefined;
@@ -1172,8 +1423,15 @@ for (const c of CRS_LIST) {
   opt.title = c.label;
   selCrs.appendChild(opt);
 }
+// 마우스 좌표를 보여 줄 좌표계: 목록에 없으면 "직접 입력…"으로 추가 (이 칸은 좁아서 번호만 보인다)
+enhanceCrsSelect(selCrs, { optionText: (c) => (c.code.startsWith('EPSG:') ? c.code.replace('EPSG:', 'EPSG ') + (c.geographic ? ' 경위도' : '') : c.label) });
 selCrs.value = displayCrs;
 const coordText = $('coord-text');
+$('coord-copy').addEventListener('click', async () => {
+  if (!lastWorld) return setStatus('지도 위에 마우스를 올린 뒤 눌러 주세요.');
+  const text = coordCopyText(lastWorld);
+  setStatus((await copyText(text)) ? `복사했습니다: ${text} (${displayCrs})` : '복사하지 못했습니다. 브라우저가 클립보드 접근을 막았습니다.');
+});
 let lastWorld = null;
 function showCoord(w) {
   if (!w) {
@@ -1393,6 +1651,51 @@ $('btn-shot').addEventListener('click', async () => {
 });
 
 // 시험·콘솔용
+// ---------------------------------------------------------------- 예제 열기 (자료가 없어도 써 볼 수 있게)
+const selSample = $('sel-sample');
+{
+  const first = document.createElement('option');
+  first.value = '';
+  first.textContent = '예제 열기…';
+  selSample.appendChild(first);
+  for (const s of SAMPLES) {
+    const o = document.createElement('option');
+    o.value = s.id;
+    o.textContent = s.label;
+    selSample.appendChild(o);
+  }
+}
+/** 샘플 파일들을 가져와 File 로 만든다 (같은 사이트의 작은 파일이라 바로 받는다) */
+async function fetchSampleFiles(sample) {
+  return Promise.all(
+    sample.files.map(async (name) => {
+      const res = await fetch(sampleUrl(import.meta.env.BASE_URL, name));
+      if (!res.ok) throw new Error(`예제 파일을 가져오지 못했습니다 (${name}, HTTP ${res.status})`);
+      return new File([await res.arrayBuffer()], name);
+    }),
+  );
+}
+async function openSample(id) {
+  const sample = SAMPLES.find((s) => s.id === id);
+  if (!sample) return;
+  queue.length = 0;
+  try {
+    setStatus(`예제를 가져오는 중… ${sample.label}`, 'busy');
+    const files = await fetchSampleFiles(sample);
+    if (sample.kind === 'vector') await startVector(files);
+    else if (sample.kind === 'raster') await startRaster(files[0], { worldFile: files[1], prjFile: files[2] ?? null });
+    else if (sample.kind === 'dem') await startDemFiles(files);
+    else if (sample.kind === 'glb') await startGlb(files[0]);
+  } catch (e) {
+    setStatus(errMsg(e), 'error');
+  }
+}
+selSample.addEventListener('change', () => {
+  const id = selSample.value;
+  selSample.value = '';
+  if (id) openSample(id);
+});
+
 // ---------------------------------------------------------------- 성능 모드 선택 칸
 const selPerf = $('sel-perf');
 for (const [v, t] of [['auto', '성능: 자동'], ['low', '성능: 저사양'], ['normal', '성능: 일반']]) {

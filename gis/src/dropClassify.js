@@ -7,11 +7,14 @@
  *    그 폴더 안의 모든 파일(glb, b3dm, json...)은 타일 내용이라 다른 것으로 분류하지 않는다.
  *  - 지형 타일: layer.json 이 있는 폴더 (Cesium quantized-mesh / heightmap 지형 타일). 그 안의 .terrain 등은 모두 이 지형 것이다
  *  - glb: 위 폴더 밖의 .glb
- *  - 벡터: .geojson/.json (파일 하나가 한 묶음), .shp (같은 폴더·같은 이름의 .dbf/.prj/.cpg/.shx 와 한 묶음), .zip (한 묶음)
+ *  - 벡터: .geojson/.json·.kml·.gpx·.csv (파일 하나가 한 묶음), .shp (같은 폴더·같은 이름의 .dbf/.prj/.cpg/.shx 와 한 묶음), .zip·.kmz (한 묶음)
  *  - 지형(DEM): .tif/.tiff (GeoTIFF), 글자 DEM(.txt/.xyz/.asc: XYZ 점 목록, ASCII 격자). .txt 는 읽어 보기 전에는 DEM인지 모르므로 후보로 올리고 체크 목록에서 뺄 수 있다
+ *  - 이미지: .png/.jpg 등 + 같은 이름의 월드파일(.pgw/.jgw/.wld). 위치 정보 파일이 없는 그림은 올릴 곳을 알 수 없어 건너뛴다 (GeoTIFF는 위 지형에서 색 이미지인지 읽어 보고 가른다)
  *  - 스타일: .sld (고른 벡터에 같이 쓴다)
  *  - 나머지(.sbn, .xml, 짝 없는 .dbf 등)는 건너뛴다.
  */
+
+import { worldFileExtensions } from './rasterCore.js';
 
 const baseOf = (p) => p.split('/').pop();
 const dirOf = (p) => p.slice(0, p.length - baseOf(p).length); // 끝의 '/' 포함, 맨 위면 ''
@@ -25,6 +28,8 @@ const stemOf = (p) => {
   return dirOf(p) + (dot < 0 ? b : b.slice(0, dot));
 };
 const SHP_PARTS = ['shp', 'dbf', 'prj', 'cpg', 'shx'];
+const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'bmp'];
+const WORLD_EXT = ['pgw', 'pngw', 'jgw', 'jpgw', 'jpegw', 'gfw', 'bpw', 'wld'];
 
 /**
  * @param {string[]} paths
@@ -33,7 +38,8 @@ const SHP_PARTS = ['shp', 'dbf', 'prj', 'cpg', 'shx'];
  *   terrains: {root:string, name:string, count:number}[],
  *   models: {path:string, label:string}[],
  *   dems: {path:string, label:string}[],
- *   vectors: {label:string, kind:'GeoJSON'|'SHP'|'ZIP', paths:string[]}[],
+ *   rasters: {label:string, paths:string[]}[],  // [이미지, 월드파일, (있으면) .prj]
+ *   vectors: {label:string, kind:'GeoJSON'|'SHP'|'ZIP'|'KML'|'KMZ'|'GPX'|'CSV', paths:string[]}[],
  *   styles: string[],
  *   ignored: string[],
  * }}
@@ -67,6 +73,7 @@ export function classifyDrop(paths) {
   const models = [];
   const dems = [];
   const vectors = [];
+  const rasters = [];
   const styles = [];
 
   const shpGroups = new Map();
@@ -81,12 +88,14 @@ export function classifyDrop(paths) {
     } else if (ext === 'geojson' || ext === 'json') {
       vectors.push({ label: baseOf(p), kind: 'GeoJSON', paths: [p] });
       used.add(p);
-    } else if (ext === 'zip') {
-      vectors.push({ label: baseOf(p), kind: 'ZIP', paths: [p] });
+    } else if (ext === 'zip' || ext === 'kmz' || ext === 'kml' || ext === 'gpx' || ext === 'csv') {
+      vectors.push({ label: baseOf(p), kind: ext.toUpperCase(), paths: [p] });
       used.add(p);
     } else if (ext === 'sld') {
       styles.push(p);
       used.add(p);
+    } else if (IMAGE_EXT.includes(ext) || WORLD_EXT.includes(ext)) {
+      // 짝이 맞는지는 아래에서 본다
     } else if (SHP_PARTS.includes(ext)) {
       const key = stemOf(p).toLowerCase();
       if (!shpGroups.has(key)) shpGroups.set(key, { label: baseOf(stemOf(p)), kind: 'SHP', paths: [] });
@@ -99,16 +108,27 @@ export function classifyDrop(paths) {
       for (const p of g.paths) used.add(p);
     }
   }
+  // 이미지 + 월드파일 (+ 같은 이름의 .prj)
+  const lower = new Map(rest.map((p) => [p.toLowerCase(), p]));
+  for (const p of rest) {
+    if (!IMAGE_EXT.includes(extOf(p))) continue;
+    const world = worldFileExtensions(p).map((e) => lower.get(`${stemOf(p)}.${e}`.toLowerCase())).find(Boolean);
+    if (!world) continue;
+    const prj = lower.get(`${stemOf(p)}.prj`.toLowerCase());
+    const paths = [p, world, ...(prj ? [prj] : [])];
+    rasters.push({ label: baseOf(p), paths });
+    for (const q of paths) used.add(q);
+  }
   const ignored = rest.filter((p) => !used.has(p));
-  return { tilesets, terrains, models, dems, vectors, styles, ignored };
+  return { tilesets, terrains, models, dems, rasters, vectors, styles, ignored };
 }
 
 /** 열 것이 몇 가지 종류인지 (3D Tiles / glb / 벡터 중) */
 export function kindCount(plan) {
-  return Number(plan.tilesets.length > 0) + Number(plan.terrains.length > 0) + Number(plan.models.length > 0) + Number(plan.dems.length > 0) + Number(plan.vectors.length > 0);
+  return Number(plan.tilesets.length > 0) + Number(plan.terrains.length > 0) + Number(plan.models.length > 0) + Number(plan.dems.length > 0) + Number(plan.rasters.length > 0) + Number(plan.vectors.length > 0);
 }
 
 /** 열 수 있는 항목 수 */
 export function itemCount(plan) {
-  return plan.tilesets.length + plan.terrains.length + plan.models.length + plan.dems.length + plan.vectors.length;
+  return plan.tilesets.length + plan.terrains.length + plan.models.length + plan.dems.length + plan.rasters.length + plan.vectors.length;
 }

@@ -12,7 +12,9 @@
 | [3d-tiles-renderer](https://github.com/NASA-AMMOS/3DTilesRendererJS) | 0.5.x | Apache-2.0 | 3D 뷰어 (3D Tiles 읽기) |
 | [proj4js](https://github.com/proj4js/proj4js) | 2.x | MIT | 좌표계 변환 |
 | [shpjs](https://github.com/calvinmetcalf/shapefile-js) | 6.x | MIT | SHP 읽기 |
-| [geotiff.js](https://github.com/geotiffjs/geotiff.js) | 3.x | MIT | GeoTIFF(DEM) 읽기 |
+| [geotiff.js](https://github.com/geotiffjs/geotiff.js) | 3.x | MIT | GeoTIFF(지형 DEM, 항공·위성 사진) 읽기 |
+| [@tmcw/togeojson](https://github.com/placemark/togeojson) | 7.x | BSD-2-Clause | KML·KMZ·GPX 를 GeoJSON 으로 변환 |
+| [@xmldom/xmldom](https://github.com/xmldom/xmldom) | 0.9.x | MIT | KML·GPX(XML) 해석 |
 | [fast-xml-parser](https://github.com/NaturalIntelligence/fast-xml-parser) | 5.x | MIT | SLD 읽기 |
 | [but-unzip](https://github.com/samthor/but-unzip) | 0.1.x | Apache-2.0 | ZIP 읽기 |
 | [Draco](https://github.com/google/draco) 디코더 (`viewer/public/draco/`) | three.js 배포본 | Apache-2.0 | 압축된 3D 타일·glb 해제 |

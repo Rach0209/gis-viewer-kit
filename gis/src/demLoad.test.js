@@ -53,11 +53,11 @@ describe('readDemFile', () => {
     expect(dem.extent).toEqual([127, 37.998, 127.002, 38]);
   });
 
-  it('좌표계를 모르는 코드(옛 5174)는 crs가 null이고 힌트만 준다', async () => {
-    const blob = makeTiff({ width: 2, height: 2, values: [1, 2, 3, 4], x0: 200000, y0: 500000, resX: 5, resY: 5, projected: 5174 });
+  it('좌표계를 모르는 코드(목록에 없는 2000)는 crs가 null이고 힌트만 준다', async () => {
+    const blob = makeTiff({ width: 2, height: 2, values: [1, 2, 3, 4], x0: 200000, y0: 500000, resX: 5, resY: 5, projected: 2000 });
     const dem = await readDemFile(blob);
     expect(dem.crs).toBeNull();
-    expect(dem.crsHint).toBe('EPSG:5174');
+    expect(dem.crsHint).toBe('EPSG:2000');
     expect(dem.extent).toBeNull();
   });
 

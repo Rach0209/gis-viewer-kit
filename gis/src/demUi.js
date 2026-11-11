@@ -1,7 +1,8 @@
 /**
  * 지형(DEM) 열기 패널: 읽은 GeoTIFF의 정보를 보여 주고, 좌표계와 높이 보정을 정한 뒤 연다. DOM만 다루고 Cesium은 모른다.
  */
-import { CRS_LIST } from '../../viewer/src/kit/crsList.js';
+import { CRS_LIST, customCrsList } from '../../viewer/src/kit/crsList.js';
+import { enhanceCrsSelect } from '../../viewer/src/kit/crsPicker.js';
 import { isNearKorea } from '../../viewer/src/kit/crsList.js';
 import { guessDemCrs, lonLatExtent } from './demCore.js';
 
@@ -12,12 +13,8 @@ function el(tag, cls, text) {
   return e;
 }
 
-/** 격자 좌표계로 고를 수 있는 목록 (한국에서 흔한 것 + WGS84 UTM 51N/52N) */
-export const DEM_CRS_CHOICES = [
-  ...CRS_LIST.map((c) => ({ code: c.code, label: c.label })),
-  { code: 'EPSG:32652', label: 'WGS84 / UTM 52N (EPSG:32652)' },
-  { code: 'EPSG:32651', label: 'WGS84 / UTM 51N (EPSG:32651)' },
-];
+/** 격자 좌표계로 고를 수 있는 목록 (대표 좌표계 + 지금까지 직접 추가한 것). 그 밖의 좌표계는 "직접 입력…" 으로 추가한다. */
+export const demCrsChoices = () => [...CRS_LIST, ...customCrsList()].map((c) => ({ code: c.code, label: c.label }));
 
 /**
  * @param {HTMLElement} panel
@@ -38,12 +35,13 @@ export function showDemPanel(panel, dem, { replacing = false, onConfirm, onCance
 
   const form = el('div', 'form');
   const crsSel = document.createElement('select');
-  for (const c of DEM_CRS_CHOICES) {
+  for (const c of demCrsChoices()) {
     const o = document.createElement('option');
     o.value = c.code;
     o.textContent = c.label;
     crsSel.appendChild(o);
   }
+  enhanceCrsSelect(crsSel); // 목록에 없는 좌표계(해외, 옛 좌표계)는 직접 입력
   const guessed = dem.crs ?? guessDemCrs(dem.bbox);
   crsSel.value = guessed ?? 'EPSG:5186';
   const offsetIn = document.createElement('input');
@@ -68,7 +66,7 @@ export function showDemPanel(panel, dem, { replacing = false, onConfirm, onCance
       const ext = lonLatExtent(dem.bbox, code);
       if (!ext.every(Number.isFinite) || Math.abs(ext[0]) > 180 || Math.abs(ext[2]) > 180 || Math.abs(ext[1]) > 90 || Math.abs(ext[3]) > 90) throw new Error('범위가 지구를 벗어납니다');
       detail.textContent = `이 좌표계로 읽으면: 경도 ${ext[0].toFixed(5)} ~ ${ext[2].toFixed(5)}, 위도 ${ext[1].toFixed(5)} ~ ${ext[3].toFixed(5)}`;
-      if (!isNearKorea({ lon: (ext[0] + ext[2]) / 2, lat: (ext[1] + ext[3]) / 2 })) warn.textContent = '한국 주변이 아닙니다. 좌표계를 잘못 골랐을 수 있습니다.';
+      if (!isNearKorea({ lon: (ext[0] + ext[2]) / 2, lat: (ext[1] + ext[3]) / 2 })) warn.textContent = '한국 밖입니다. 해외 자료가 맞다면 그대로 두고, 아니라면 좌표계를 확인하세요.';
       else if (['EPSG:5185', 'EPSG:5186', 'EPSG:5187'].includes(code)) warn.textContent = '서부·중부·동부원점(5185/5186/5187)은 값이 비슷해서, 틀리면 위치가 수십~수백 km 어긋납니다. 위 경도로 확인하세요.';
       open.disabled = false;
     } catch (e) {

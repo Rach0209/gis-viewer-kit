@@ -5,6 +5,7 @@
  * 화면 코드는 이 파일의 함수만 부르고, 무거운 라이브러리는 워커 쪽 번들에만 들어간다.
  */
 import { assembleDemText } from '../demText.js';
+import { getCrs } from '../../../viewer/src/kit/crsList.js';
 import { planSources } from '../vectorNames.js';
 import { createPool } from './pool.js';
 
@@ -50,7 +51,59 @@ export async function readDemTextParallel(files, limits) {
   return assembleDemText(parsed);
 }
 
+// ---------------------------------------------------------------- 색 이미지(항공·위성 사진, 월드파일 이미지)
+/** GeoTIFF 가 색 이미지인가 (아니면 지형 DEM) */
+export const probeTiff = async (file) => getPool().run('tiffProbe', { file: await asBlob(file) });
+
+/** Blob 이 아닌 파일 모양({name, arrayBuffer})은 워커에 넘길 수 있게 Blob 으로 */
+async function asBlob(f) {
+  if (typeof Blob !== 'undefined' && f instanceof Blob) return f;
+  return Object.assign(new Blob([await f.arrayBuffer()]), { name: f.name });
+}
+
+/**
+ * 이미지 하나를 읽어 워커에 둔다. 좌표계를 바꿔 가며 project() 로 다시 그리고, 다 쓰면 release().
+ * @param {{name:string, arrayBuffer:()=>Promise<ArrayBuffer>}} image
+ * @param {{worldFile?:{text?:()=>Promise<string>, arrayBuffer:()=>Promise<ArrayBuffer>}|null, limits?:object}} [o]
+ */
+export async function openRasterFile(image, { worldFile = null, limits } = {}) {
+  const worldText = worldFile ? new TextDecoder('utf-8').decode(await worldFile.arrayBuffer()) : null;
+  const file = await asBlob(image);
+  const named = file.name ? file : Object.assign(file, { name: image.name });
+  const lease = getPool().lease();
+  let info;
+  try {
+    info = await lease.run('rasterOpen', { file: named, worldText, limits });
+  } catch (e) {
+    lease.release();
+    throw e;
+  }
+  let released = false;
+  return {
+    info,
+    /** @param {{crs:string, transparentBlack?:boolean, maxDim?:number}} opts */
+    project: (opts) => lease.run('rasterProject', { id: info.id, ...withCrsDef(opts) }),
+    release() {
+      if (released) return;
+      released = true;
+      lease.run('rasterRelease', { id: info.id }).catch(() => {});
+      lease.release();
+    },
+  };
+}
+
 // ---------------------------------------------------------------- 벡터
+/** 직접 추가한 좌표계를 골랐으면 워커가 알 수 있게 정의를 같이 보낸다 (워커는 화면의 좌표계 목록을 모른다) */
+export function withCrsDef(opts) {
+  if (!opts?.crs || opts.crs === 'auto') return opts;
+  try {
+    const info = getCrs(opts.crs);
+    return info.custom && info.def ? { ...opts, crsDef: { code: info.code, def: info.def, label: info.label } } : opts;
+  } catch {
+    return opts;
+  }
+}
+
 /** 파일(File 또는 {name, arrayBuffer, blob?})을 워커에 넘길 수 있는 모양으로. Blob이면 복사 없이 핸들만 넘어간다. */
 async function toWire(f) {
   const blob = f.blob ?? (typeof Blob !== 'undefined' && f instanceof Blob ? f : null);
@@ -109,8 +162,10 @@ export async function openVectorFiles(files) {
       items.push({
         name: it.name,
         kind: it.kind,
+        label: it.label,
         hasDbf: it.hasDbf,
-        build: (opts) => r.lease.run('vectorBuild', { id: it.id, opts }),
+        hasEncoding: it.hasEncoding,
+        build: (opts) => r.lease.run('vectorBuild', { id: it.id, opts: withCrsDef(opts) }),
         _id: it.id,
         _lease: r.lease,
       });

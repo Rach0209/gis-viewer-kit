@@ -81,7 +81,7 @@ describe('좌표계', () => {
     expect(crsFromGeoKeys({ GeographicTypeGeoKey: 4326 })).toBe('EPSG:4326');
     expect(crsFromGeoKeys({ GeographicTypeGeoKey: 4737 })).toBe('EPSG:4737');
     expect(crsFromGeoKeys({ ProjectedCSTypeGeoKey: 32652 })).toBe('EPSG:32652');
-    expect(crsFromGeoKeys({ ProjectedCSTypeGeoKey: 5174 })).toBeNull(); // 옛 좌표계는 사용자가 고른다
+    expect(crsFromGeoKeys({ ProjectedCSTypeGeoKey: 2000 })).toBeNull(); // 목록에 없는 좌표계는 사용자가 고른다 (직접 입력)
     expect(crsFromGeoKeys({ ProjectedCSTypeGeoKey: 32767 })).toBeNull();
     expect(crsFromGeoKeys({})).toBeNull();
     expect(crsFromGeoKeys(null)).toBeNull();
@@ -89,7 +89,7 @@ describe('좌표계', () => {
   it('지원 여부', () => {
     expect(isSupportedCrs('EPSG:5179')).toBe(true);
     expect(isSupportedCrs('EPSG:32651')).toBe(true);
-    expect(isSupportedCrs('EPSG:5174')).toBe(false);
+    expect(isSupportedCrs('EPSG:2000')).toBe(false);
     expect(isSupportedCrs(undefined)).toBe(false);
   });
   it('중부원점 5186의 원점(127E, 38N)은 (200000, 600000)', () => {

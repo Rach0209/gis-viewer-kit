@@ -3,6 +3,7 @@
  * 읽은 원본(raw)은 이 모듈 안에 두고 화면에는 번호(id)만 준다. 인코딩·좌표계를 바꿔 다시 계산할 때
  * 큰 원본을 워커와 화면 사이로 왔다 갔다 하지 않게 하려는 것이다.
  */
+import { registerCrs } from '../../../viewer/src/kit/crsList.js';
 import { buildCollection, collectGroups, readRaw } from '../vectorParse.js';
 
 const store = new Map();
@@ -28,7 +29,8 @@ export async function openSource({ files }) {
       const raw = await readRaw(g);
       const id = ++seq;
       store.set(id, raw);
-      items.push({ id, name: g.name, kind: raw.kind, hasDbf: Boolean(raw.dbfBuf) });
+      // label: 화면에 보일 형식 이름(SHP, GeoJSON, KML, GPX, CSV), hasEncoding: 속성 인코딩을 고를 수 있는가(DBF가 있는 SHP, CSV)
+      items.push({ id, name: g.name, kind: raw.kind, label: raw.source ?? raw.kind, hasDbf: Boolean(raw.dbfBuf), hasEncoding: Boolean(raw.dbfBuf) || raw.kind === 'csv' });
     } catch (e) {
       errors.push(e?.message ?? String(e));
     }
@@ -48,6 +50,8 @@ export async function openSource({ files }) {
 export function buildItem({ id, opts }) {
   const raw = store.get(id);
   if (!raw) throw new Error('이미 닫힌 파일입니다. 다시 열어 주세요.');
+  // 화면에서 직접 추가한 좌표계는 이 워커가 모르므로 정의를 같이 받아 등록한다
+  if (opts?.crsDef) registerCrs(opts.crsDef);
   return buildCollection(raw, opts);
 }
 

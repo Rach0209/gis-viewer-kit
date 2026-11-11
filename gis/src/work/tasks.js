@@ -19,6 +19,22 @@ export const tasks = {
     const r = await parseDemTextFile(file, limits);
     return transferred(r, ownBuffer(r.grid.data));
   },
+  /** GeoTIFF 가 색 이미지인지(DEM 이 아닌지) 가볍게 확인 */
+  async tiffProbe(args) {
+    return (await import('./rasterJobs.js')).probeTiff(args);
+  },
+  /** 색 이미지(GeoTIFF, PNG/JPG + 월드파일)를 읽어 워커에 둔다 */
+  async rasterOpen(args) {
+    return (await import('./rasterJobs.js')).openRaster(args);
+  },
+  /** 좌표계가 정해지면 경위도 격자 RGBA 로 다시 그린다 (결과 배열은 복사 없이 넘긴다) */
+  async rasterProject(args) {
+    const r = (await import('./rasterJobs.js')).projectRaster(args);
+    return transferred(r, ownBuffer(r.rgba));
+  },
+  async rasterRelease(args) {
+    return (await import('./rasterJobs.js')).releaseRaster(args);
+  },
   async vectorOpen(args) {
     return (await import('./vectorJobs.js')).openSource(args);
   },

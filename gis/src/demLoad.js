@@ -4,6 +4,7 @@
  */
 import { fromArrayBuffer, fromBlob } from 'geotiff';
 import { MAX_PIXELS, crsFromGeoKeys, heightStats, lonLatExtent } from './demCore.js';
+import { isColorImage } from './rasterCore.js';
 
 export { MAX_PIXELS };
 
@@ -29,7 +30,7 @@ export async function readDemFile(file, { maxPixels = MAX_PIXELS, hint = '' } = 
   const height = image.getHeight();
   const bands = image.getSamplesPerPixel();
   const bits = image.getBitsPerSample?.(0) ?? 32;
-  if (bands >= 3 && bits <= 8) throw new Error('색상 이미지(RGB)입니다. 높이 값이 든 지형(DEM) GeoTIFF를 여세요.');
+  if (isColorImage({ bands, bits, format: image.getSampleFormat?.(0) ?? 1 })) throw new Error('색상 사진(밴드 3개 이상 또는 8비트 흑백)입니다. 높이 값이 든 지형(DEM) GeoTIFF를 여세요. 사진은 "이미지 열기"로 여세요.');
   if (width * height > maxPixels) {
     throw new Error(`격자가 너무 큽니다 (${width.toLocaleString('ko-KR')}×${height.toLocaleString('ko-KR')} 화소). 쓸 지역만 잘라내거나 해상도를 줄인 파일을 쓰세요.${hint}`);
   }

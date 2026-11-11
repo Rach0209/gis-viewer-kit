@@ -5,6 +5,7 @@
  */
 
 import { PROVIDERS } from './rasterProviders.js';
+import { enhanceCrsSelect } from './crsPicker.js';
 import { CRS_LIST, DEFAULT_CRS, fromLonLat, getCrs, isNearKorea, isValidLonLat, toLonLat } from './crsList.js';
 import { createMapPicker } from './MapPicker.js';
 
@@ -176,6 +177,11 @@ export function createKitUi(container, handlers) {
     buttons.glb = button('glb 열기', handlers.onOpenGlb);
     buttons.glb.title = 'glb 모델 파일 한 개를 열어 좌표를 입력해 배치하거나 단일 모델로 봅니다';
     toolbar.appendChild(buttons.glb);
+  }
+  if (handlers.onOpenSample) {
+    buttons.sample = button('예제 glb', handlers.onOpenSample);
+    buttons.sample.title = '파일이 없어도 써 볼 수 있는 작은 가상 집 모델 (EPSG:5186 좌표가 들어 있음)';
+    toolbar.appendChild(buttons.sample);
   }
   buttons.reset = button('처음 시점', handlers.onReset);
   buttons.measure = button('거리재기', () => {
@@ -635,6 +641,7 @@ export function createKitUi(container, handlers) {
       o.textContent = c.label;
       crsSel.appendChild(o);
     }
+    enhanceCrsSelect(crsSel); // 목록에 없는 좌표계는 직접 입력
     crsSel.value = DEFAULT_CRS;
     const xLabel = el('label');
     const yLabel = el('label');

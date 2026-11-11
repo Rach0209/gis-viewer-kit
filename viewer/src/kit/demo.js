@@ -5,6 +5,7 @@ const viewer = createTileViewer(document.getElementById('viewer'), {
   // 디코더(draco/, basis/)는 이 페이지와 같은 사이트의 base 아래에 있다 (개발 서버는 '/', 하위 경로로 배포하면 그 폴더)
   decoderBaseUrl: new URL(import.meta.env.BASE_URL, window.location.href).href,
   persistence: 'localStorage', // 메모를 이 브라우저에 저장 (타일셋 이름+모드별)
+  sampleGlbUrl: new URL(`${import.meta.env.BASE_URL}samples/house-5186.glb`, window.location.href).href, // "예제 glb" 버튼
 });
 
 // 사이트(GitHub Pages 등)로 빌드한 화면에서만 시작 화면으로 돌아가는 링크를 보인다 (개발 서버에서는 상위 폴더가 없다)

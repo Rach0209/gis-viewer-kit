@@ -25,7 +25,7 @@ export function createLayerStore(viewer, { memoStore = null } = {}) {
     },
 
     /**
-     * @param {{name:string, kind:'tileset'|'model'|'vector'|'terrain', object:any, host:'primitives'|'dataSources'|'terrain', meta?:object}} o
+     * @param {{name:string, kind:'tileset'|'model'|'vector'|'terrain'|'raster', object:any, host:'primitives'|'dataSources'|'terrain'|'imagery', meta?:object}} o
      */
     add({ name, kind, object, host, meta = {}, dispose = null, style = null, data = null }) {
       const id = `${kind}-${++seq}`;
@@ -62,6 +62,26 @@ export function createLayerStore(viewer, { memoStore = null } = {}) {
       notify();
     },
 
+    /**
+     * 벡터 레이어의 지도 위 도형(데이터 소스)을 새것으로 바꿔 끼운다. 새 데이터 소스는 이미 viewer.dataSources 에 올려 둔 것이어야 한다.
+     * 켜기/끄기, 메모, 원본 자료(data)는 그대로이고 옛 도형은 지운다 (강조 중이던 피처의 강조도 풀린다).
+     * @param {string} id
+     * @param {any} object 새 데이터 소스
+     * @param {{meta?:object, style?:object|null}} [patch]
+     */
+    replaceObject(id, object, patch = {}) {
+      const layer = layers.get(id);
+      if (!layer || layer.host !== 'dataSources') return false;
+      const old = layer.object;
+      layer.object = object;
+      if (patch.meta) layer.meta = patch.meta;
+      if ('style' in patch) layer.style = patch.style;
+      applyVisible(layer);
+      viewer.dataSources.remove(old, true);
+      notify();
+      return true;
+    },
+
     /** 모든 레이어를 한꺼번에 켜거나 끈다 (목록은 한 번만 다시 그린다) */
     setAllVisible(visible) {
       for (const layer of layers.values()) {
@@ -75,6 +95,7 @@ export function createLayerStore(viewer, { memoStore = null } = {}) {
       const layer = layers.get(id);
       if (!layer) return;
       if (layer.host === 'dataSources') viewer.dataSources.remove(layer.object, true);
+      else if (layer.host === 'imagery') viewer.imageryLayers.remove(layer.object, true); // 항공사진 같은 이미지 레이어
       else if (layer.host === 'terrain') layer.object.show = false; // 지형은 컬렉션이 아니라 평평한 지구로 되돌리는 것이 "지우기"
       else viewer.scene.primitives.remove(layer.object);
       layers.delete(id);
@@ -89,6 +110,10 @@ export function createLayerStore(viewer, { memoStore = null } = {}) {
       const layer = layers.get(id);
       if (!layer) return undefined;
       if (layer.kind === 'terrain') return layer.object.flyTo();
+      if (layer.kind === 'raster') {
+        const [w, s, e, n] = layer.meta.extent;
+        return viewer.camera.flyTo({ destination: Cesium.Rectangle.fromDegrees(w, s, e, n), duration: 0.8 });
+      }
       if (layer.kind === 'model') {
         // viewer.zoomTo는 Model(원시 객체)을 지원하지 않아 경계 구로 직접 이동한다
         const sphere = layer.object.boundingSphere;

@@ -34,8 +34,10 @@
       .panel { position: absolute; background: rgba(20, 25, 29, 0.94); border: 1px solid var(--line); border-radius: 6px; z-index: 5; }
       #layers { top: 10px; left: 10px; width: 330px; max-height: calc(100% - 60px); overflow: auto; padding: 8px 10px; }
       #layers h2, #place h2 { margin: 0 0 6px; font-size: 13px; }
-      #layers .row { display: flex; align-items: center; gap: 6px; padding: 3px 0; border-top: 1px solid var(--line); }
-      #layers .row .name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      /* 버튼이 많은 레이어는 이름이 0 으로 줄지 않도록, 이름에 최소 폭을 주고 넘치면 버튼이 다음 줄로 내려간다 */
+      #layers .row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 3px 0; border-top: 1px solid var(--line); }
+      #layers .row .name { flex: 1 1 110px; min-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #layers .row.bar .name { min-width: 0; flex-basis: auto; }
       #layers .empty { color: var(--muted); }
       /* 전체 켜기/끄기·전체 삭제 줄: 아래 개별 레이어와 구분선으로 나눈다 */
       #layers .row.bar { border-top: none; border-bottom: 2px solid var(--muted); padding: 2px 0 6px; margin-bottom: 4px; color: var(--muted); }
@@ -72,6 +74,7 @@
       #coord { right: 10px; bottom: 10px; padding: 3px 8px; display: flex; gap: 8px; align-items: center; font-size: 12px; font-variant-numeric: tabular-nums; pointer-events: auto; }
       #coord select { padding: 1px 4px; font-size: 12px; max-width: 150px; }
       #coord-text { white-space: nowrap; }
+      #coord button { padding: 1px 8px; font-size: 12px; }
       /* 지도 조작 안내: 좌표 표시 줄 바로 위 (3D 뷰어와 같은 조작) */
       #mousehint { position: absolute; right: 10px; bottom: 44px; padding: 3px 8px; font-size: 12px; color: var(--muted); background: rgba(20, 25, 29, 0.78); border-radius: 4px; pointer-events: none; z-index: 4; }
       @media (max-width: 700px) { #mousehint { display: none; } }
@@ -103,8 +106,10 @@
       <a id="home-link" href="../" hidden title="시작 화면으로">← 홈</a>
       <button id="btn-folder" type="button">3D Tiles 폴더 열기</button>
       <button id="btn-glb" type="button">glb 열기</button>
-      <button id="btn-vec" type="button">GeoJSON / SHP 열기</button>
+      <button id="btn-vec" type="button" title="SHP(+dbf/prj), GeoJSON, KML/KMZ(구글어스), GPX(GPS), CSV(경도·위도 열이 있는 표), ZIP">벡터 열기</button>
       <button id="btn-dem" type="button">지형(DEM) 열기</button>
+      <button id="btn-img" type="button" title="항공·위성 사진(GeoTIFF), 또는 PNG/JPG + 월드파일(.pgw/.jgw/.wld)">이미지 열기</button>
+      <select id="sel-sample" aria-label="예제 열기" title="자료가 없어도 바로 써 볼 수 있는 작은 가상 샘플"></select>
       <button id="btn-terrain" type="button" title="Cesium 지형 타일 폴더(layer.json + .terrain 타일)">지형 타일 폴더 열기</button>
       <span style="opacity: 0.4">|</span>
       <select id="sel-map" aria-label="배경 지도"></select>
@@ -122,10 +127,10 @@
       <div id="place" class="panel" hidden></div>
       <div id="info" class="panel" hidden></div>
       <div id="measure" class="panel" hidden></div>
-      <div id="coord" class="panel"><select id="sel-crs" aria-label="좌표 표시 좌표계"></select><span id="coord-text">지도 위에 마우스를 올려 보세요</span></div>
+      <div id="coord" class="panel"><select id="sel-crs" aria-label="좌표 표시 좌표계"></select><span id="coord-text">지도 위에 마우스를 올려 보세요</span><button id="coord-copy" type="button" title="마지막으로 본 위치의 좌표(위에서 고른 좌표계의 X, Y)를 복사합니다">복사</button></div>
       <div id="mousehint"></div>
       <div id="status" hidden></div>
-      <div id="drop">폴더, glb, GeoJSON / SHP, 지형(.tif 또는 지형 타일 폴더)을 여기에 놓으세요</div>
+      <div id="drop">폴더, glb, SHP / GeoJSON / KML / GPX / CSV, 지형(.tif 또는 지형 타일 폴더)을 여기에 놓으세요</div>
     </div>
     <script>
       window.CESIUM_BASE_URL = new URL('./cesium/', window.location.href).href; // 하위 경로(GitHub Pages 등)에서도 동작하게 상대 경로

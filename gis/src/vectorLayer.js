@@ -1,6 +1,7 @@
 /* global Cesium */
 /** WGS84 GeoJSON(vectorParse.js의 결과)을 Cesium 데이터 소스로 만든다. 지면과 3D 타일 위에 붙여서(clamp/classify) 그린다. */
 import { labelText, parseColor, pickRule, ruleActiveAtScale } from './sld.js';
+import { shiftHeights, stripHeights } from './geomHeights.js';
 import { dashToCesium, lineMidpoint, polygonLabelPoint } from './geomLabel.js';
 
 const toCesiumColor = (hex, opacity) => {
@@ -185,6 +186,17 @@ function applyRuleVisibility(ds, state) {
   }
 }
 
+/**
+ * 새로 만든 데이터 소스에 앞서 적용한 스타일을 그대로 다시 입힌다 (레이어의 도형을 다시 만들 때).
+ * 범례에서 사용자가 끈 규칙은 계속 꺼 둔다. 축척 범위로 감춘 규칙은 updateScale 이 다시 정한다.
+ */
+export function restyle(ds, old, collection = null) {
+  const state = applyStyle(ds, old.style, collection);
+  state.hiddenRules = new Set(old.hiddenRules);
+  if (state.hiddenRules.size) applyRuleVisibility(ds, state);
+  return state;
+}
+
 /** 범례의 규칙 하나를 켜거나 끈다 (그 규칙으로 칠해진 피처만) */
 export function setRuleVisible(ds, state, ruleIndex, visible) {
   if (visible) state.hiddenRules.delete(ruleIndex);
@@ -215,19 +227,22 @@ export const nextColor = () => PALETTE[colorIndex++ % PALETTE.length];
 
 /**
  * @param {object} collection WGS84 FeatureCollection
- * @param {{name:string, color?:string}} o
+ * @param {{name:string, color?:string, useHeights?:boolean, heightOffset?:number}} o
+ *   useHeights: false(기본)면 높이를 떼고 모두 지면에 붙인다. true면 좌표의 높이대로 그린다(지면에 붙이지 않음)
+ *   heightOffset: useHeights 일 때 높이에 더하는 값(m). 해수면 기준 표고를 타원체고에 맞출 때 쓴다
  * @returns {Promise<Cesium.GeoJsonDataSource>}
  */
-export async function createVectorDataSource(collection, { name, color = nextColor() }) {
+export async function createVectorDataSource(collection, { name, color = nextColor(), useHeights = false, heightOffset = 0 }) {
   const c = Cesium.Color.fromCssColorString(color);
-  const ds = await Cesium.GeoJsonDataSource.load(collection, {
-    clampToGround: true,
+  const ds = await Cesium.GeoJsonDataSource.load(useHeights ? shiftHeights(collection, heightOffset) : stripHeights(collection), {
+    clampToGround: !useHeights,
     stroke: c,
     fill: c.withAlpha(0.35),
     strokeWidth: 3,
     markerColor: c,
   });
   ds.name = name;
+  ds.__baseColor = color; // 높이 옵션을 바꿔 다시 만들 때 같은 색을 쓰려고
   for (const e of ds.entities.values) {
     // 기본은 지형(지구 표면)에만 붙는다. 3D 타일 위에도 붙도록 분류 대상을 넓힌다.
     if (e.polygon) e.polygon.classificationType = Cesium.ClassificationType.BOTH;

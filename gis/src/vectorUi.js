@@ -3,6 +3,7 @@
  * 한글이 깨져 보이거나 위치가 어긋나 보이면 여기서 고른다 (설정을 바꾸면 바로 다시 계산해서 미리 보여 준다).
  */
 import { CRS_LIST } from '../../viewer/src/kit/crsList.js';
+import { enhanceCrsSelect } from '../../viewer/src/kit/crsPicker.js';
 import { pickRule } from './sld.js';
 
 const CRS_CHOICES = CRS_LIST.map((c) => ({ code: c.code, label: c.label }));
@@ -21,7 +22,7 @@ const ENCODING_SOURCE = {
   'euc-kr-guess': '내용으로 판단(UTF-8이 아니라서)',
   user: '직접 선택',
 };
-const CRS_SOURCE = { prj: '.prj', 'geojson-crs': 'GeoJSON crs', guess: '좌표 범위로 추정', default: '기본값', user: '직접 선택' };
+const CRS_SOURCE = { prj: '.prj', 'geojson-crs': 'GeoJSON crs', guess: '좌표 범위로 추정', default: '기본값', user: '직접 선택', format: 'KML·GPX 규격' };
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -54,11 +55,11 @@ const sampleText = (props) =>
 export function showVectorPanel(panel, items, { skipped = [], styles = [], onConfirm, onCancel }) {
   panel.replaceChildren();
   panel.hidden = false;
-  panel.append(el('h2', null, 'GeoJSON / SHP 열기'));
+  panel.append(el('h2', null, '벡터 자료 열기'));
   panel.append(el('div', 'sub', '한글이 깨져 보이거나 위치가 어긋나 보이면 아래에서 인코딩·좌표계를 고르세요.'));
   if (skipped.length) panel.append(el('div', 'warn', `건너뛴 파일: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? ' …' : ''}`));
 
-  const states = items.map((item) => ({ item, opts: { encoding: 'auto', crs: 'auto' }, result: null, styleIndex: null, pending: false }));
+  const states = items.map((item) => ({ item, opts: { encoding: 'auto', crs: 'auto' }, result: null, styleIndex: null, pending: false, useHeights: false, heightOffset: 0 }));
   // 계산이 끝나지 않았거나 열 수 있는 게 없으면 "열기"를 잠근다
   let okBtn = null;
   let confirming = false;
@@ -68,27 +69,64 @@ export function showVectorPanel(panel, items, { skipped = [], styles = [], onCon
 
   for (const st of states) {
     const fs = el('fieldset');
-    const legend = el('legend', null, `${st.item.name} (${st.item.kind === 'shp' ? 'SHP' : 'GeoJSON'})`);
+    const legend = el('legend', null, `${st.item.name} (${st.item.label ?? st.item.kind})`);
     fs.append(legend);
     const summary = el('div', 'sub');
     const form = el('div', 'form');
-    const crsSel = select([['auto', '자동 (.prj / 추정)'], ...CRS_CHOICES.map((c) => [c.code, c.label])], 'auto');
+    const crsSel = select([['auto', '자동 (.prj · 추정 · 형식 규격)'], ...CRS_CHOICES.map((c) => [c.code, c.label])], 'auto');
+    enhanceCrsSelect(crsSel); // 목록에 없는 좌표계(해외, 옛 좌표계)는 직접 입력
     form.append(el('label', null, '좌표계'), crsSel);
     let encSel = null;
-    if (st.item.kind === 'shp' && st.item.hasDbf) {
+    if (st.item.hasEncoding ?? (st.item.kind === 'shp' && st.item.hasDbf)) {
       encSel = select(ENCODING_CHOICES, 'auto');
       form.append(el('label', null, '속성 인코딩'), encSel);
+    }
+    // CSV: 경도(X)·위도(Y) 열과 구분자를 고른다 (처음에는 열 이름·값으로 자동으로 고르고, 계산 뒤 목록을 채운다)
+    let delimSel = null;
+    let xSel = null;
+    let ySel = null;
+    if (st.item.kind === 'csv') {
+      delimSel = select([['auto', '자동'], [',', '쉼표 ,'], ['	', '탭'], [';', '세미콜론 ;'], ['|', '세로줄 |']], 'auto');
+      xSel = select([['-1', '(자동)']], '-1');
+      ySel = select([['-1', '(자동)']], '-1');
+      form.append(el('label', null, '구분자'), delimSel, el('label', null, '경도(X) 열'), xSel, el('label', null, '위도(Y) 열'), ySel);
     }
     let styleSel = null;
     if (styles.length) {
       styleSel = select([['-1', '스타일 없음'], ...styles.map((s, i) => [String(i), `SLD: ${s.name}`])], '-1');
       form.append(el('label', null, '스타일(SLD)'), styleSel);
     }
+    // 높이: 좌표에 높이(세 번째 값)가 있는 자료(KML, GPX, 3차원 SHP)에서만 보인다. 기본은 모두 지면에 붙인다.
+    const heightRow = el('div', 'sub');
+    heightRow.hidden = true;
+    const useH = document.createElement('input');
+    useH.type = 'checkbox';
+    const useHLabel = el('label');
+    useHLabel.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer';
+    useHLabel.append(useH, document.createTextNode('파일의 높이 사용 (지면에 붙이지 않고 좌표의 높이대로 그림)'));
+    const offsetIn = document.createElement('input');
+    offsetIn.type = 'number';
+    offsetIn.step = 'any';
+    offsetIn.value = '0';
+    offsetIn.disabled = true;
+    offsetIn.style.width = '72px';
+    const offsetRow = el('label');
+    offsetRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:2px';
+    offsetRow.append(document.createTextNode('높이 보정 (m)'), offsetIn);
+    const offsetNote = el('div', 'sub', '구글어스·GPS 높이는 보통 해수면 기준 표고라, 지도의 타원체고와 한국에서 대략 25~30 m 차이가 납니다. 건물·지형 위에 정확히 얹으려면 그 차이를 넣으세요. 이 자료에 높이가 있어 "지면에 붙이기"를 끄고 쓸 수 있습니다.');
+    heightRow.append(useHLabel, offsetRow, offsetNote);
+    useH.addEventListener('change', () => {
+      st.useHeights = useH.checked;
+      offsetIn.disabled = !useH.checked;
+    });
+    offsetIn.addEventListener('input', () => {
+      st.heightOffset = Number(offsetIn.value) || 0;
+    });
     const detail = el('div', 'sub');
     const sample = el('div', 'sample');
     const styleInfo = el('div', 'sub');
     const warns = el('div');
-    fs.append(summary, form, detail, sample, styleInfo, warns);
+    fs.append(summary, form, detail, sample, styleInfo, heightRow, warns);
     panel.append(fs);
 
     /** 이 데이터가 가진 속성 이름을 모두 쓰는 스타일을 찾는다 (SLD 필터가 가리키는 속성이 있어야 칠할 수 있다) */
@@ -141,7 +179,26 @@ export function showVectorPanel(panel, items, { skipped = [], styles = [], onCon
         `좌표계: ${info.crs.label} (${CRS_SOURCE[info.crs.source] ?? info.crs.source})` +
         (info.center ? ` · 중심 경도 ${info.center.lon.toFixed(5)}, 위도 ${info.center.lat.toFixed(5)}` : '') +
         (info.encoding ? ` · 인코딩: ${info.encoding.encoding} (${ENCODING_SOURCE[info.encoding.source] ?? info.encoding.source})` : '');
-      sample.textContent = info.encoding || st.item.kind === 'geojson' ? `속성 예: ${sampleText(info.sampleProperties)}` : '';
+      sample.textContent = info.encoding || st.item.kind === 'geojson' || st.item.kind === 'csv' ? `속성 예: ${sampleText(info.sampleProperties)}` : '';
+      heightRow.hidden = !info.hasHeights;
+      if (!info.hasHeights && st.useHeights) {
+        st.useHeights = false;
+        useH.checked = false;
+        offsetIn.disabled = true;
+      }
+      if (xSel && info.csv) {
+        // 열 이름 목록을 채우고, 자동으로 고른 열을 보여 준다
+        for (const [sel, chosen] of [[xSel, info.csv.xCol], [ySel, info.csv.yCol]]) {
+          sel.replaceChildren(...[['-1', '(못 찾음 — 고르세요)'], ...info.csv.columns.map((c, i) => [String(i), `${i + 1}. ${c}`])].map(([v, l]) => {
+            const o = document.createElement('option');
+            o.value = v;
+            o.textContent = l;
+            return o;
+          }));
+          sel.value = String(chosen);
+        }
+        detail.textContent += ` · 행 ${info.csv.rows.toLocaleString('ko-KR')}개`;
+      }
       if (st.styleIndex === null) {
         // 처음 한 번: 맞는 스타일이 있으면 자동으로 고른다
         st.styleIndex = autoStyleIndex();
@@ -161,6 +218,17 @@ export function showVectorPanel(panel, items, { skipped = [], styles = [], onCon
       st.opts = { ...st.opts, encoding: encSel.value };
       recompute();
     });
+    delimSel?.addEventListener('change', () => {
+      // 구분자를 바꾸면 열 번호가 달라지므로 열 선택은 다시 자동으로
+      st.opts = { ...st.opts, delimiter: delimSel.value, xCol: undefined, yCol: undefined };
+      recompute();
+    });
+    const onColumnChange = () => {
+      st.opts = { ...st.opts, xCol: Number(xSel.value), yCol: Number(ySel.value) };
+      recompute();
+    };
+    xSel?.addEventListener('change', onColumnChange);
+    ySel?.addEventListener('change', onColumnChange);
     recompute();
   }
 
@@ -170,7 +238,7 @@ export function showVectorPanel(panel, items, { skipped = [], styles = [], onCon
   okBtn = ok;
   refreshOk();
   ok.addEventListener('click', async () => {
-    const results = states.filter((s) => s.result).map((s) => ({ name: s.item.name, collection: s.result.collection, info: s.result.info, style: s.styleIndex >= 0 ? styles[s.styleIndex].style : null }));
+    const results = states.filter((s) => s.result).map((s) => ({ name: s.item.name, collection: s.result.collection, info: s.result.info, style: s.styleIndex >= 0 ? styles[s.styleIndex].style : null, useHeights: s.useHeights && !!s.result.info.hasHeights, heightOffset: Number(s.heightOffset) || 0 }));
     if (!results.length) return;
     confirming = true;
     refreshOk();

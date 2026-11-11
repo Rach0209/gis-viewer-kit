@@ -156,3 +156,29 @@ describe('readDemTiff (워커와 같은 경로)', () => {
     expect(dem.stats.max).toBe(6);
   });
 });
+
+describe('직접 추가한 좌표계를 워커로 (withCrsDef)', () => {
+  it('목록의 좌표계·auto 는 그대로, 직접 추가한 것만 정의를 붙인다', async () => {
+    const { registerCrs } = await import('../../../viewer/src/kit/crsList.js');
+    const { withCrsDef } = await import('./client.js');
+    const def = '+proj=lcc +lat_0=46.5 +lon_0=3 +lat_1=49 +lat_2=44 +x_0=700000 +y_0=6600000 +ellps=GRS80 +units=m +no_defs';
+    registerCrs({ code: 'EPSG:2154', def, label: 'L93' });
+    expect(withCrsDef({ crs: 'auto' })).toEqual({ crs: 'auto' });
+    expect(withCrsDef({ crs: 'EPSG:5179' })).toEqual({ crs: 'EPSG:5179' });
+    expect(withCrsDef({ crs: 'EPSG:2154', encoding: 'utf-8' })).toEqual({ crs: 'EPSG:2154', encoding: 'utf-8', crsDef: { code: 'EPSG:2154', def, label: 'L93' } });
+    expect(withCrsDef(undefined)).toBeUndefined();
+  });
+
+  it('워커 쪽은 정의를 받아 모르는 좌표계로도 계산한다 (프랑스 Lambert-93 점)', async () => {
+    const geojson = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [700000, 6600000] } }] };
+    const f = Object.assign(new Blob([JSON.stringify(geojson)]), { name: 'fr.geojson' });
+    const r = await openVectorFiles([f]);
+    const def = '+proj=lcc +lat_0=46.5 +lon_0=3 +lat_1=49 +lat_2=44 +x_0=700000 +y_0=6600000 +ellps=GRS80 +units=m +no_defs';
+    const out = await r.items[0].build({ crs: 'EPSG:2154', crsDef: { code: 'EPSG:2154', def, label: 'L93' } });
+    const [lon, lat] = out.collection.features[0].geometry.coordinates;
+    expect(lon).toBeCloseTo(3, 6);
+    expect(lat).toBeCloseTo(46.5, 6);
+    expect(out.info.crs.code).toBe('EPSG:2154');
+    r.release();
+  });
+});

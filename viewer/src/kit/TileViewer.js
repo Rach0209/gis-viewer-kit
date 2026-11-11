@@ -104,6 +104,19 @@ export function createTileViewer(container, options = {}) {
         if (e?.name !== 'AbortError') reportError(e);
       }
     },
+    // 예제 glb: options.sampleGlbUrl 이 있을 때만 버튼이 생긴다 (데모 화면용, 임베드 번들에는 없음)
+    onOpenSample: opts.sampleGlbUrl
+      ? async () => {
+          try {
+            const res = await fetch(opts.sampleGlbUrl);
+            if (!res.ok) throw new Error(`예제 파일을 가져오지 못했습니다 (HTTP ${res.status})`);
+            await api.loadModel(new File([await res.arrayBuffer()], 'house-5186.glb'));
+          } catch (e) {
+            ui.setBusy(null);
+            reportError(e);
+          }
+        }
+      : null,
     onCopyDiagnostics: () => copyDiagnostics(),
     onEditChange: (patch) => editChange(patch),
     onEditNudge: (dEast, dNorth) => editNudge(dEast, dNorth),

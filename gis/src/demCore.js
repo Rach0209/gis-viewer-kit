@@ -6,7 +6,7 @@
  * 행 0이 북쪽(위), 열 0이 서쪽(왼쪽).
  */
 import proj4 from 'proj4';
-import { CRS_LIST, fromLonLat, isNearKorea } from '../../viewer/src/kit/crsList.js';
+import { CRS_LIST, fromLonLat, isKnownCrs, isNearKorea, toLonLat } from '../../viewer/src/kit/crsList.js';
 
 /** 이보다 큰 격자는 브라우저 메모리가 부족해질 수 있어 거절한다 (1.2억 화소 = Float32 약 480 MB) */
 export const MAX_PIXELS = 120_000_000;
@@ -165,16 +165,14 @@ export function heightStats(data, nodata) {
 
 // ---------------------------------------------------------------- 좌표계
 const GEOGRAPHIC = new Set([4326, 4737, 4619, 4258, 4269, 4612]); // 경위도로 보고 그대로 쓴다 (측지계 차이는 1 m 안팎이라 지형 높이에는 무시)
-const KNOWN = new Set(CRS_LIST.map((c) => c.code));
 const numberOf = (code) => Number(String(code).replace('EPSG:', ''));
 const isGeographic = (code) => code === 'EPSG:4326' || GEOGRAPHIC.has(numberOf(code));
 
 /** 'EPSG:4326'처럼 쓸 수 있는 코드인가 (격자 좌표계로 지원하는지) */
 export function isSupportedCrs(code) {
   if (typeof code !== 'string') return false;
-  if (KNOWN.has(code)) return true;
-  const n = numberOf(code);
-  return GEOGRAPHIC.has(n) || (n >= 32601 && n <= 32660) || (n >= 32701 && n <= 32760);
+  if (isKnownCrs(code)) return true; // 목록, UTM 존, 직접 추가한 좌표계
+  return GEOGRAPHIC.has(numberOf(code));
 }
 
 /** GeoTIFF GeoKeys에서 좌표계 코드('EPSG:n')를 찾는다. 없거나 지원하지 않으면 null */
@@ -188,38 +186,24 @@ export function crsFromGeoKeys(keys) {
   return null;
 }
 
-function utmConverter(code) {
-  const n = numberOf(code);
-  const south = n >= 32701;
-  const zone = n - (south ? 32700 : 32600);
-  return `+proj=utm +zone=${zone}${south ? ' +south' : ''} +datum=WGS84 +units=m +no_defs`;
-}
-
 /** 경위도 -> 격자 좌표계 (x, y). 지원하지 않으면 오류 */
 export function projectorFor(code) {
   if (!isSupportedCrs(code)) throw new Error(`지원하지 않는 좌표계: ${code}`);
   if (isGeographic(code)) return (lon, lat) => [lon, lat];
-  if (KNOWN.has(code)) {
-    return (lon, lat) => {
-      const { x, y } = fromLonLat(code, lon, lat);
-      return [x, y];
-    };
-  }
-  const conv = proj4('EPSG:4326', utmConverter(code));
-  return (lon, lat) => conv.forward([lon, lat]);
+  return (lon, lat) => {
+    const { x, y } = fromLonLat(code, lon, lat);
+    return [x, y];
+  };
 }
 
 /** 격자 좌표계 (x, y) -> 경위도 */
 export function inverseFor(code) {
   if (!isSupportedCrs(code)) throw new Error(`지원하지 않는 좌표계: ${code}`);
   if (isGeographic(code)) return (x, y) => [x, y];
-  if (KNOWN.has(code)) {
-    const c = CRS_LIST.find((k) => k.code === code);
-    if (c.def) proj4.defs(code, c.def);
-    return (x, y) => proj4(code, 'EPSG:4326', [x, y]);
-  }
-  const conv = proj4(utmConverter(code), 'EPSG:4326');
-  return (x, y) => conv.forward([x, y]);
+  return (x, y) => {
+    const { lon, lat } = toLonLat(code, x, y);
+    return [lon, lat];
+  };
 }
 
 /** 격자 bbox의 경위도 범위 [west, south, east, north] (도). 가장자리를 따라 점을 찍어 구한다. */

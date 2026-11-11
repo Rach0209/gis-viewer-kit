@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>서울 산책 예제</name>
+  <Placemark><name>출발: 서울시청</name><description>가상의 산책 경로 시작점</description><Point><coordinates>126.9784,37.5666,0</coordinates></Point></Placemark>
+  <Placemark><name>도착: 경복궁</name><Point><coordinates>126.977,37.5796,0</coordinates></Point></Placemark>
+  <Placemark><name>산책 경로</name><LineString><tessellate>1</tessellate><coordinates>126.9784,37.5666,0 126.9781,37.5690,0 126.9775,37.5722,0 126.9769,37.5759,0 126.9770,37.5796,0</coordinates></LineString></Placemark>
+  <Placemark><name>광화문 광장 일대</name><Polygon><outerBoundaryIs><LinearRing><coordinates>126.9755,37.5730,0 126.9785,37.5730,0 126.9785,37.5775,0 126.9755,37.5775,0 126.9755,37.5730,0</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>
+</Document></kml>

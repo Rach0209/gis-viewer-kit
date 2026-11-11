@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="gis-viewer-kit 예제" xmlns="http://www.topografix.com/GPX/1/1">
+  <wpt lat="37.528500" lon="126.924600"><name>출발</name></wpt>
+  <wpt lat="37.516500" lon="126.999600"><name>도착</name></wpt>
+  <trk><name>한강변 달리기 (가상 기록)</name><trkseg>
+    <trkpt lat="37.528500" lon="126.924600"><ele>8.0</ele></trkpt>
+    <trkpt lat="37.528669" lon="126.926475"><ele>8.7</ele></trkpt>
+    <trkpt lat="37.528827" lon="126.928350"><ele>9.3</ele></trkpt>
+    <trkpt lat="37.528962" lon="126.930225"><ele>9.9</ele></trkpt>
+    <trkpt lat="37.529063" lon="126.932100"><ele>10.3</ele></trkpt>
+    <trkpt lat="37.529121" lon="126.933975"><ele>10.7</ele></trkpt>
+    <trkpt lat="37.529127" lon="126.935850"><ele>10.9</ele></trkpt>
+    <trkpt lat="37.529073" lon="126.937725"><ele>11.0</ele></trkpt>
+    <trkpt lat="37.528953" lon="126.939600"><ele>10.9</ele></trkpt>
+    <trkpt lat="37.528763" lon="126.941475"><ele>10.7</ele></trkpt>
+    <trkpt lat="37.528500" lon="126.943350"><ele>10.3</ele></trkpt>
+    <trkpt lat="37.528163" lon="126.945225"><ele>9.9</ele></trkpt>
+    <trkpt lat="37.527753" lon="126.947100"><ele>9.3</ele></trkpt>
+    <trkpt lat="37.527273" lon="126.948975"><ele>8.6</ele></trkpt>
+    <trkpt lat="37.526727" lon="126.950850"><ele>8.0</ele></trkpt>
+    <trkpt lat="37.526121" lon="126.952725"><ele>7.3</ele></trkpt>
+    <trkpt lat="37.525463" lon="126.954600"><ele>6.7</ele></trkpt>
+    <trkpt lat="37.524762" lon="126.956475"><ele>6.1</ele></trkpt>
+    <trkpt lat="37.524027" lon="126.958350"><ele>5.6</ele></trkpt>
+    <trkpt lat="37.523269" lon="126.960225"><ele>5.3</ele></trkpt>
+    <trkpt lat="37.522500" lon="126.962100"><ele>5.1</ele></trkpt>
+    <trkpt lat="37.521731" lon="126.963975"><ele>5.0</ele></trkpt>
+    <trkpt lat="37.520973" lon="126.965850"><ele>5.1</ele></trkpt>
+    <trkpt lat="37.520238" lon="126.967725"><ele>5.3</ele></trkpt>
+    <trkpt lat="37.519537" lon="126.969600"><ele>5.7</ele></trkpt>
+    <trkpt lat="37.518879" lon="126.971475"><ele>6.2</ele></trkpt>
+    <trkpt lat="37.518273" lon="126.973350"><ele>6.7</ele></trkpt>
+    <trkpt lat="37.517727" lon="126.975225"><ele>7.4</ele></trkpt>
+    <trkpt lat="37.517247" lon="126.977100"><ele>8.1</ele></trkpt>
+    <trkpt lat="37.516837" lon="126.978975"><ele>8.7</ele></trkpt>
+    <trkpt lat="37.516500" lon="126.980850"><ele>9.4</ele></trkpt>
+    <trkpt lat="37.516237" lon="126.982725"><ele>9.9</ele></trkpt>
+    <trkpt lat="37.516047" lon="126.984600"><ele>10.4</ele></trkpt>
+    <trkpt lat="37.515927" lon="126.986475"><ele>10.7</ele></trkpt>
+    <trkpt lat="37.515873" lon="126.988350"><ele>10.9</ele></trkpt>
+    <trkpt lat="37.515879" lon="126.990225"><ele>11.0</ele></trkpt>
+    <trkpt lat="37.515937" lon="126.992100"><ele>10.9</ele></trkpt>
+    <trkpt lat="37.516038" lon="126.993975"><ele>10.7</ele></trkpt>
+    <trkpt lat="37.516173" lon="126.995850"><ele>10.3</ele></trkpt>
+    <trkpt lat="37.516331" lon="126.997725"><ele>9.8</ele></trkpt>
+    <trkpt lat="37.516500" lon="126.999600"><ele>9.2</ele></trkpt>
+  </trkseg></trk>
+</gpx>
