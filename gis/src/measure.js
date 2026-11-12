@@ -116,7 +116,7 @@ export function createMeasure(viewer, { onChange }) {
         polyline: {
           positions: new Cesium.CallbackProperty(positions, false),
           width: 4,
-          // 땅(지형, 나중에 올릴 DEM 포함)과 3D 타일 표면에 붙여 그린다. 지구 곡률을 따라가고 위에서 봐도 안 사라진다.
+          // 땅(지형, 올려 둔 DEM 포함)과 3D 타일 표면에 붙여 그린다. 지구 곡률을 따라가고 위에서 봐도 안 사라진다.
           clampToGround: true,
           classificationType: Cesium.ClassificationType.BOTH,
           material: CYAN(),

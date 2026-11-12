@@ -1,7 +1,7 @@
-# 03. 뷰어 공개 API (초안)
+# 03. 뷰어 공개 API
 
-> **초안이다.** 구현 전에 이 문서를 먼저 확정하고, 코드는 이 계약에 맞춘다.
-> 이름과 옵션은 P1 구현 시 조정될 수 있으며, 변경하면 이 문서를 먼저 고친다.
+> 설계로 시작해 구현하면서 고쳐 온 문서다. 1~5절은 처음 설계이고, **구현과 이름이 다르면 5-1절(`TileViewer.js`에 실제로 있는 것)이 기준**이다.
+> 이름과 옵션을 바꾸면 이 문서도 같이 고친다.
 
 ## 1. 진입점
 
@@ -73,7 +73,7 @@ await viewer.loadTileset(source);
 | `box`/`sphere` 중심 벡터 크기가 약 6.0e6 ~ 6.5e6 m (지구 반경 근처) | geo (ECEF 좌표) |
 | 그 외 | model (로컬 좌표) |
 
-geo일 때 `origin: 'auto'`는 루트 중심의 ECEF → 위경도 변환으로 구한다 (기존 `origin.config.js`를 2026-08-05에 수동으로 계산한 방식을 코드화). 틀리게 판별되면 `profile.mode`로 강제할 수 있다.
+geo일 때 `origin: 'auto'`는 루트 중심의 ECEF → 위경도 변환으로 구한다. 틀리게 판별되면 `profile.mode`로 강제할 수 있다.
 
 ## 5. 인스턴스 메서드/이벤트
 
@@ -95,7 +95,7 @@ viewer.dispose();                       // 리스너·GPU 리소스·DOM 완전 
 
 ### 5-1. 지금 구현되어 있는 것 (`viewer/src/kit/TileViewer.js`)
 
-위 초안과 이름이 다른 부분이 있다. 구현된 쪽이 현재 기준이다.
+위 설계와 이름이 다른 부분이 있다. 구현된 쪽이 현재 기준이다.
 
 ```js
 const v = TileViewer.create(el, { mode:'auto', persistence:'localStorage', basemap:'osm' });

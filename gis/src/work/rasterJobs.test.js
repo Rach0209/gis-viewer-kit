@@ -1,6 +1,5 @@
 import { writeArrayBuffer } from 'geotiff';
 import { afterEach, describe, expect, it } from 'vitest';
-import { fromLonLat } from '../../../viewer/src/kit/crsList.js';
 import { openRasterFile, probeTiff, resetPool } from './client.js';
 import { heldRasters } from './rasterJobs.js';
 

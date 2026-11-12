@@ -112,12 +112,12 @@ async function toWire(f) {
 }
 
 /**
- * GeoJSON / SHP / ZIP 파일들을 읽는다. 묶음(zip 하나, GeoJSON 하나, 같은 이름의 SHP 부품들)마다 다른 워커가 동시에 읽는다.
+ * 벡터 파일들(GeoJSON, SHP, ZIP, KML/KMZ, GPX, CSV, GeoPackage)을 읽는다. 묶음(zip 하나, GeoJSON 하나, 같은 이름의 SHP 부품들 …)마다 다른 워커가 동시에 읽는다.
  * 읽은 원본은 워커에 남아 있고, item.build(설정)으로 인코딩·좌표계를 바꿔 가며 다시 계산한다. 다 쓰면 release().
  *
  * @param {Array<{name:string, arrayBuffer:()=>Promise<ArrayBuffer>, blob?:Blob}>} files
  * @returns {Promise<{
- *   items: Array<{name:string, kind:'shp'|'geojson', hasDbf:boolean, build:(opts:{encoding?:string, crs?:string})=>Promise<{collection:object, info:object}>}>,
+ *   items: Array<{name:string, kind:'shp'|'geojson'|'csv', hasDbf:boolean, build:(opts:{encoding?:string, crs?:string})=>Promise<{collection:object, info:object}>}>,
  *   skipped: string[], errors: string[], styles: Array<{name:string, text:string}>, release: ()=>void
  * }>}
  */

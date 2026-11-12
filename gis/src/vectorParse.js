@@ -1,12 +1,12 @@
 /**
- * GeoJSON / Shapefile(SHP+DBF+PRJ+CPG, ZIP 포함)을 읽어 WGS84(경위도) GeoJSON으로 바꾼다. Cesium에 의존하지 않는다.
+ * 벡터 파일(GeoJSON, Shapefile(SHP+DBF+PRJ+CPG, ZIP 포함), KML/KMZ, GPX, CSV, GeoPackage)을 읽어 WGS84(경위도) GeoJSON으로 바꾼다. Cesium에 의존하지 않는다.
  *
  * 한국 데이터에서 문제가 되는 두 가지를 직접 다룬다.
  *  1) 한글 속성 인코딩: .cpg가 CP949/949/EUC-KR이면 한국어 완성형(WHATWG 이름 'euc-kr')으로, 없으면 UTF-8로 엄격하게
  *     읽어 보고 깨지면 EUC-KR로 읽는다. 사용자가 고를 수도 있다. (shpjs는 `.cpg`가 CP949이거나 없으면 한글이 깨진다)
  *  2) 좌표계: .prj가 있으면 그걸 쓰고, 없으면 좌표 범위로 추정(5179 / 5186 / 4326 …)하며, 사용자가 고를 수도 있다.
  *
- * 흐름: collectGroups(파일들) -> readRaw(그룹) (파일을 한 번만 읽음) -> buildCollection(raw, 설정) (설정을 바꿔도 다시 읽지 않음)
+ * 흐름: collectGroups(파일들) -> readRaws(그룹) (파일을 한 번만 읽음) -> buildCollection(raw, 설정) (설정을 바꿔도 다시 읽지 않음)
  */
 import { parseShp, parseDbf } from 'shpjs';
 import proj4 from 'proj4';

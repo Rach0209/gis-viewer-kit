@@ -46,6 +46,7 @@ ln -s "<내 타일셋 폴더>" viewer/public/tiles-real
 | 무엇 | 명령 | 결과 |
 |---|---|---|
 | 임베드용 `<script>` 번들 | `cd viewer && npm run build:lib` | `viewer/dist/` (`tile-viewer.iife.js`, `draco/`, `basis/`, `THIRD-PARTY-NOTICES.txt`). 미리 보기 `npm run preview:lib` |
+| 사이트 전체(시작 화면 + 3D 뷰어 + GIS 작업실) | `node scripts/build-site.mjs` | `_site/`. 하위 경로에서 미리 보기: `node scripts/serve-site.mjs` → `http://localhost:4180/gis-viewer-kit/` |
 
 사이트는 상대 경로(`base: './'`)로 빌드해서 `https://<아이디>.github.io/<저장소>/` 같은 하위 경로에 올려도 동작한다. `main`에 올리면 `.github/workflows/pages.yml`이 테스트와 빌드를 한 뒤 GitHub Pages에 배포한다.
 
@@ -56,7 +57,7 @@ ln -s "<내 타일셋 폴더>" viewer/public/tiles-real
 
 ## 5. Git
 
-- 로컬 저장소 (`main`). 원격은 GitHub 공개 단계(P7)에서 연결한다.
+- 브랜치 `main`. 원격은 GitHub이고, `main`에 올리면 Pages 배포가 돈다.
 - **커밋 작성자(`user.name`/`user.email`)는 공개해도 되는 값으로 설정**한다. 올리기 전에 `git log --format='%an <%ae>' | sort -u`로 확인한다.
 - `.gitignore`가 제외하는 것: `node_modules`, `dist/`와 `_site/`, `samples/`의 생성 파일, `viewer/public/tiles-real`, `gis/public/cesium`, 개발 도구 설정(`.claude/`).
 - 올리기 전 점검: 내 PC의 절대 경로, 개인/회사 이메일, 실제 현장 이름·좌표가 코드·문서·시험 데이터에 섞이지 않았는지.

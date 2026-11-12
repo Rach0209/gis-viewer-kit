@@ -35,7 +35,7 @@
 4. 3d-tiles-renderer가 타일 URL을 요청할 때, 플러그인이 가상 URL을 `File`로 매핑해 응답한다.
 
 **기술적 근거 (확인됨):** `3d-tiles-renderer` 0.5.0은 플러그인에 `preprocessURL(url, tile)`과 `fetchData(url, options)` 훅을 제공하며, 루트 tileset 로드와 각 타일 콘텐츠 로드 둘 다 이 훅을 거친다 (`TilesRendererBase.js`). 따라서 `fetchData`가 `new Response(file)`을 돌려주는 "로컬 파일 플러그인"으로 구현할 수 있다.
-**아직 확인 안 된 것:** 실제 데이터(Draco+KTX2 glb 43개)로 끝까지 로드되는지는 P2에서 검증한다.
+**확인함:** 실제 데이터(Draco+KTX2 glb 43개)가 이 방식으로 끝까지 로드된다 ([05](05-roadmap.md) P2).
 
 ### 폴더를 받는 방법
 
@@ -73,24 +73,25 @@ REST 계약은 [04-backend-api.md](04-backend-api.md).
 </script>
 ```
 
-- 번들에 three, 3d-tiles-renderer를 포함 → 호스트 페이지와 의존성 충돌 없음. **측정값 (배경 지도·체험 모드·단독 glb 포함, 서버 연결 코드 제외, 2026-11-06): IIFE 1.08MB (gzip 308KB).** proj4는 들어가지 않는다 (새 모듈이 쓰지 않음).
+- 번들에 three, 3d-tiles-renderer를 포함 → 호스트 페이지와 의존성 충돌 없음. **측정값 (배경 지도·체험 모드·단독 glb·메모·미니맵 포함, 서버 연결 코드 제외, 2026-11-12): IIFE 1.09MB (gzip 315KB).** proj4는 들어가지 않는다 (새 모듈이 쓰지 않음).
 - 디코더(WASM, 약 1.6MB)는 **번들 옆에 같이 배포**하고(`dist/draco/`, `dist/basis/`), 스크립트 자신의 URL을 기준으로 경로를 찾는다. 옵션 `decoderBaseUrl`로 덮어쓸 수 있다. 디코더를 스크립트와 **다른 도메인**(CDN)에 둘 때는 그 서버가 CORS를 허용해야 한다 (디코더 JS/WASM을 fetch로 읽기 때문).
 - 빌드/배포 파일 구성은 `npm run build:lib` 결과인 `dist/` 한 폴더 (스크립트 2개, draco/, basis/, 예제 index.html, THIRD-PARTY-NOTICES.txt). 이 폴더를 정적 서버에 올리면 된다.
 - **`<script>` 번들은 클라이언트 전용이다.** 빌드가 `__TVK_BACKEND__=false`로 Java 서버 연결 코드(`kind:'backend'`, `listBackendTilesets`)를 제거한다. 개발용 데모(`/kit-demo.html`)는 포함한다. 번들에서 `kind:'backend'`를 쓰면 안내 오류가 난다.
 - CSS는 JS에서 주입 (별도 CSS 파일 없음).
 - npm 배포는 같은 소스를 ES 모듈로 빌드하고 three를 `peerDependency`로 둔다.
 
-## 5. 뷰어 내부 모듈 경계 (기존 구조 → 변경 방향)
+## 5. 뷰어 내부 모듈 구성 (`viewer/src/`)
 
-| 영역 | 현재 | 방향 |
-|---|---|---|
-| `core/Viewer`, `core/geo`, `layers/*` | DOM 의존 적음, 재사용 쉬움 | 거의 유지 |
-| `main.js` (555줄) | 앱 전체를 전역으로 조립 | `createViewer(container, options)`로 분리. 가장 큰 작업 |
-| `config/appConfig`, `cameraUrlState` | `window.location` 직접 의존 | 옵션으로 주입, 기본은 URL 비연동 |
-| (옛 `config/` 하드코딩 URL·원점·EPSG:5179) | 제거됨 (2026-11-06) | 타일셋 프로필 + 자동 원점 계산 |
-| `core/annotationStorage` | localStorage 고정, 키 고정 | `PersistenceAdapter` (none / localStorage / REST) |
-| `ui/*`, `interaction/*` | `document`/`window` 직접 접근 | 컨테이너 범위로 한정, `dispose()` 보장 |
-| (신규) `sources/` | 없음 | UrlSource / LocalFilesSource / BackendSource |
+| 폴더 | 역할 |
+|---|---|
+| `core/` | three.js 렌더 골격(`Viewer`, `CameraRig`), 지리 좌표 프레임(`geo/ecefFrame`), 이동 범위 제한(`panClamp`). DOM 의존이 적다 |
+| `layers/` | 레이어(`LayerBase`, `Tiles3DLayer`, 메모 핀 `AnnotationLayer`)와 `LayerManager`, 타일 좌표·핀 크기 계산 |
+| `interaction/` | 조작: 항공 조작, 걷기(`WalkControls`, `walkPhysics`), 거리 재기, 메모 입력, 호버 강조, 클릭, 시작 위치 선택. 컨테이너 범위로 한정하고 `dispose()`를 보장한다 |
+| `ui/` | 컨테이너 안의 화면 부품: 미니맵(상공 렌더 + 보이는 영역 표시) |
+| `kit/` | **공개 API**(`TileViewer`, `index.js`, `bundle.js`)와 소스(`sources.js`: URL / 로컬 폴더 / 서버), 로컬 파일 플러그인, 좌표계·좌표 변환, glb·타일셋 점검, 성능 모드, 저장소 어댑터(`persistence.js`: none / localStorage / REST). GIS 작업실(`gis/`)이 같이 쓰는 순수 계산 모듈도 여기 있다 |
+| `utils/` | `dispose.js` (three.js 자원 해제) |
+
+설정은 전역(`window.location`, `localStorage`)을 직접 읽지 않고 옵션으로 주입한다. 기본은 URL 비연동이다.
 
 ## 6. 클라우드 이관을 위한 원칙 (지금부터 지킬 것)
 

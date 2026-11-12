@@ -10,7 +10,6 @@ import { createLayerStore } from './layers.js';
 import { buildModelMatrix, createModel } from './modelPlace.js';
 import { nudgeLonLat, pickEditable, sanitizeEdit } from './modelEdit.js';
 import { showEditPanel } from './modelEditUi.js';
-import { isVectorFileName } from './vectorNames.js';
 import { MOUSE_HINT, applyMouseScheme } from './mouseScheme.js';
 import { enhanceCrsSelect } from '../../viewer/src/kit/crsPicker.js';
 import { currentPerf, demLimitHint, readEnv, resolvePerf, savePref } from '../../viewer/src/kit/perfMode.js';
@@ -20,7 +19,7 @@ import { describePlacement } from './exportData.js';
 import { SAMPLES, sampleUrl } from './samples.js';
 import { copyText, downloadText, showExportPanel } from './exportUi.js';
 import { resolveCrsInput } from '../../viewer/src/kit/crsLookup.js';
-import { applyStyle, createVectorDataSource, entityProperties, restyle, setRuleVisible, updateScale } from './vectorLayer.js';
+import { applyStyle, createVectorDataSource, restyle, setRuleVisible, updateScale } from './vectorLayer.js';
 import { parseSld } from './sld.js';
 import { showVectorPanel } from './vectorUi.js';
 import { createDemTerrain, demInfoRows } from './demTerrain.js';
@@ -960,7 +959,7 @@ $('btn-glb').addEventListener('click', async () => {
   }
 });
 
-// ---------------------------------------------------------------- GeoJSON / SHP
+// ---------------------------------------------------------------- 벡터 (GeoJSON, SHP, KML, GPX, CSV, GeoPackage)
 const infoEl = $('info');
 function closeInfo() {
   clearSelection();
@@ -1389,7 +1388,7 @@ async function startVector(fileList) {
   let opened = null;
   try {
     setStatus('파일 읽는 중…', 'busy');
-    // 읽기(ZIP 풀기, SHP/GeoJSON 해석)는 워커가 한다. 묶음마다 다른 워커가 동시에 읽는다.
+    // 읽기(ZIP 풀기, 형식별 해석)는 워커가 한다. 묶음마다 다른 워커가 동시에 읽는다.
     opened = await openVectorFiles(files);
     const { items, skipped, errors } = opened;
     if (!items.length) {

@@ -10,4 +10,4 @@
 | `node gis/tools/make-sample-terrain-tiles.mjs` | `samples/terrain-tiles/` Cesium 지형 타일 폴더 (quantized-mesh, gzip) |
 | `node gis/tools/make-sample-mixed.mjs` | `samples/mixed/` 끌어놓기 시험용 섞인 폴더 (위 자료를 모아 3D Tiles 폴더까지 만듦) |
 
-모두 가상의 도형·지형이며 실제 현장 자료가 아닙니다. 사용 방법은 [docs/08-glb-test-guide.md](../docs/08-glb-test-guide.md), [docs/09-gis-page.md](../docs/09-gis-page.md).
+모두 가상의 도형·지형이며 실제 현장 자료가 아닙니다. (화면의 `예제 열기` 자료는 `node gis/scripts/make-samples.mjs`가 `gis/public/samples/`에 만들며, 그쪽은 git에 올라갑니다.) 사용 방법은 [docs/08-glb-test-guide.md](../docs/08-glb-test-guide.md), [docs/09-gis-page.md](../docs/09-gis-page.md).

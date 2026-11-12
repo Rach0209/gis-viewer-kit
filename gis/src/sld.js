@@ -60,12 +60,6 @@ const num = (s, d) => {
 // ---------------------------------------------------------------- 필터
 const COMPARE = { PropertyIsEqualTo: 'eq', PropertyIsNotEqualTo: 'ne', PropertyIsLessThan: 'lt', PropertyIsGreaterThan: 'gt', PropertyIsLessThanOrEqualTo: 'le', PropertyIsGreaterThanOrEqualTo: 'ge' };
 
-const operand = (node) => {
-  if (node?.PropertyName !== undefined) return { prop: text(node.PropertyName) };
-  if (node?.Literal !== undefined) return { lit: text(node.Literal) };
-  return null;
-};
-
 /** 필터 XML 노드 -> 계산용 트리. 해석할 수 없으면 { op:'unsupported', name } */
 function parseFilter(node) {
   if (!node || typeof node !== 'object') return null;

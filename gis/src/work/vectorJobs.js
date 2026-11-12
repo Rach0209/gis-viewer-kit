@@ -1,5 +1,5 @@
 /**
- * 벡터(GeoJSON/SHP/ZIP) 읽기 작업 — 워커 안에서 돈다 (Node 시험에서는 그 자리에서 돈다).
+ * 벡터(GeoJSON/SHP/ZIP/KML/GPX/CSV/GeoPackage) 읽기 작업 — 워커 안에서 돈다 (Node 시험에서는 그 자리에서 돈다).
  * 읽은 원본(raw)은 이 모듈 안에 두고 화면에는 번호(id)만 준다. 인코딩·좌표계를 바꿔 다시 계산할 때
  * 큰 원본을 워커와 화면 사이로 왔다 갔다 하지 않게 하려는 것이다.
  */
@@ -18,7 +18,7 @@ const asFile = ({ name, blob, buffer }) => ({
 /**
  * 한 묶음(ZIP 하나 / GeoJSON 하나 / SHP 부품들)을 읽어 둔다.
  * @param {{files:Array<{name:string, blob?:Blob, buffer?:ArrayBuffer}>}} o
- * @returns {Promise<{items:Array<{id:number,name:string,kind:'shp'|'geojson',hasDbf:boolean}>, skipped:string[], errors:string[], styles:Array<{name:string,text:string}>}>}
+ * @returns {Promise<{items:Array<{id:number,name:string,kind:'shp'|'geojson'|'csv',hasDbf:boolean}>, skipped:string[], errors:string[], styles:Array<{name:string,text:string}>}>}
  */
 export async function openSource({ files }) {
   const { groups, skipped, styles } = await collectGroups(files.map(asFile));

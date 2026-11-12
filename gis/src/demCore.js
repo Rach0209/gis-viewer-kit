@@ -5,8 +5,7 @@
  * 격자는 "화소(pixel)가 땅의 작은 정사각형"이고 bbox가 격자 전체의 바깥 경계(왼쪽·아래·오른쪽·위)라고 본다.
  * 행 0이 북쪽(위), 열 0이 서쪽(왼쪽).
  */
-import proj4 from 'proj4';
-import { CRS_LIST, fromLonLat, isKnownCrs, isNearKorea, toLonLat } from '../../viewer/src/kit/crsList.js';
+import { fromLonLat, isKnownCrs, isNearKorea, toLonLat } from '../../viewer/src/kit/crsList.js';
 
 /** 이보다 큰 격자는 브라우저 메모리가 부족해질 수 있어 거절한다 (1.2억 화소 = Float32 약 480 MB) */
 export const MAX_PIXELS = 120_000_000;
