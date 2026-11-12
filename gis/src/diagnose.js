@@ -29,7 +29,6 @@ const EXPORT_HINT = 'QGIS에서 레이어를 우클릭 → 내보내기 → 새 
 
 /** 확장자별 설명: [확장자들, 원인, 해결] */
 const KNOWN = [
-  [['gpkg'], 'GeoPackage(.gpkg)는 아직 읽지 못합니다.', EXPORT_HINT],
   [['dxf', 'dwg'], 'CAD 도면(DXF/DWG)은 아직 읽지 못합니다.', 'CAD나 QGIS에서 SHP 또는 GeoJSON으로 내보내세요. 도면 좌표는 좌표계 정보가 없는 경우가 많으니 내보낼 때 좌표계도 확인하세요.'],
   [['xlsx', 'xls', 'xlsm'], '엑셀 파일은 아직 직접 열지 못합니다.', "엑셀에서 '다른 이름으로 저장 → CSV UTF-8(쉼표로 분리)'로 저장한 뒤 그 CSV를 여세요. 경도·위도 열이 있으면 지도에 표시됩니다."],
   [['gdb', 'gdbtable', 'gdbtablx', 'gdbindexes', 'atx', 'spx', 'freelist', 'horizon', 'mdb', 'accdb'], 'Esri 지오데이터베이스(.gdb, .mdb)는 읽지 못합니다.', EXPORT_HINT],

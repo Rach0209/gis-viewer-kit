@@ -25,7 +25,7 @@ const ENCODING_SOURCE = {
   'euc-kr-guess': '내용으로 판단(UTF-8이 아니라서)',
   user: '직접 선택',
 };
-const CRS_SOURCE = { prj: '.prj', 'geojson-crs': 'GeoJSON crs', guess: '좌표 범위로 추정', default: '기본값', user: '직접 선택', format: 'KML·GPX 규격' };
+const CRS_SOURCE = { prj: '.prj', 'geojson-crs': 'GeoJSON crs', guess: '좌표 범위로 추정', default: '기본값', user: '직접 선택', format: 'KML·GPX 규격', gpkg: 'GeoPackage 파일 안의 정의' };
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);

@@ -4,7 +4,7 @@
  * 큰 원본을 워커와 화면 사이로 왔다 갔다 하지 않게 하려는 것이다.
  */
 import { registerCrs } from '../../../viewer/src/kit/crsList.js';
-import { buildCollection, collectGroups, readRaw } from '../vectorParse.js';
+import { buildCollection, collectGroups, readRaws } from '../vectorParse.js';
 
 const store = new Map();
 let seq = 0;
@@ -26,11 +26,14 @@ export async function openSource({ files }) {
   const errors = [];
   for (const g of groups) {
     try {
-      const raw = await readRaw(g);
-      const id = ++seq;
-      store.set(id, raw);
-      // label: 화면에 보일 형식 이름(SHP, GeoJSON, KML, GPX, CSV), hasEncoding: 속성 인코딩을 고를 수 있는가(DBF가 있는 SHP, CSV)
-      items.push({ id, name: g.name, kind: raw.kind, label: raw.source ?? raw.kind, hasDbf: Boolean(raw.dbfBuf), hasEncoding: Boolean(raw.dbfBuf) || raw.kind === 'csv' });
+      // 묶음 하나가 원본 하나가 아닐 수 있다 (GeoPackage는 지형지물 표마다 하나)
+      const read = await readRaws(g);
+      for (const raw of read.raws) {
+        const id = ++seq;
+        store.set(id, raw);
+        // label: 화면에 보일 형식 이름(SHP, GeoJSON, KML, GPX, CSV, GeoPackage), hasEncoding: 속성 인코딩을 고를 수 있는가(DBF가 있는 SHP, CSV)
+        items.push({ id, name: raw.name ?? g.name, kind: raw.kind, label: raw.source ?? raw.kind, hasDbf: Boolean(raw.dbfBuf), hasEncoding: Boolean(raw.dbfBuf) || raw.kind === 'csv' });
+      }
     } catch (e) {
       errors.push(e?.message ?? String(e));
     }

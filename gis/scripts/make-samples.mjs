@@ -183,4 +183,59 @@ for (let r = 0; r < 50; r++) for (let c = 0; c < 50; c++) {
 }
 write('가상-언덕-DEM.txt', dem.join('\n') + '\n');
 
+// ---------------------------------------------------------------- 7) GeoPackage (한 파일에 표 네 개, 좌표계도 섞음: 명소 점 5186 / 산책로 선 4326 / 구역 면 5186 / 높이가 있는 비행경로 선 4326)
+// 명소는 위 CSV와 같은 공개 지점이다. 5186 좌표는 경위도에서 계산한다.
+const { default: initSqlJs } = await import('sql.js');
+const { default: proj4 } = await import('proj4');
+const { makeGpkg, SRS } = await import('../src/gpkgFixture.js');
+const to5186 = proj4(SRS[5186].definition);
+const m = (lon, lat) => to5186.forward([lon, lat]).map((v) => Math.round(v * 10) / 10);
+const boxM = (lon0, lat0, lon1, lat1) => {
+  const [x0, y0] = m(lon0, lat0);
+  const [x1, y1] = m(lon1, lat1);
+  return [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]];
+};
+const gpkg = await makeGpkg(
+  {
+    layers: [
+      {
+        table: 'places',
+        identifier: '명소',
+        geomType: 'POINT',
+        srsId: 5186,
+        rows: places.map(([이름, lon, lat, 분류, 방문자수]) => ({ geometry: { type: 'Point', coordinates: m(lon, lat) }, props: { 이름, 분류, 방문자수 } })),
+      },
+      {
+        // 높이(Z)가 든 표: 좌표가 x, y, 높이(m)로 저장된다. 열면 레이어 줄에 "높이" 토글이 나타난다
+        table: 'flight',
+        identifier: '비행경로(높이)',
+        geomType: 'LINESTRING',
+        srsId: 4326,
+        z: true,
+        rows: [{ geometry: { type: 'LineString', coordinates: flight.map(([lon, lat, h]) => [Math.round(lon * 1e5) / 1e5, Math.round(lat * 1e5) / 1e5, Math.round(h)]) }, props: { 이름: '서울 상공 비행 경로', 높이범위: '100~300 m' } }],
+      },
+      {
+        table: 'walk',
+        identifier: '산책로(경위도)',
+        geomType: 'LINESTRING',
+        srsId: 4326,
+        rows: [{ geometry: { type: 'LineString', coordinates: [[126.9784, 37.5666], [126.9781, 37.569], [126.9775, 37.5722], [126.9769, 37.5759], [126.977, 37.5796]] }, props: { 이름: '시청에서 경복궁까지', 길이_m: 1500 } }],
+      },
+      {
+        table: 'zones',
+        identifier: '구역',
+        geomType: 'POLYGON',
+        srsId: 5186,
+        rows: [
+          { geometry: { type: 'Polygon', coordinates: boxM(126.96, 37.555, 126.985, 37.572) }, props: { 이름: '구역 가', 용도: '주거', 면적비율: 0.42 } },
+          { geometry: { type: 'Polygon', coordinates: boxM(126.985, 37.555, 127.01, 37.572) }, props: { 이름: '구역 나', 용도: '상업', 면적비율: 0.31 } },
+          { geometry: { type: 'Polygon', coordinates: boxM(126.96, 37.572, 127.01, 37.585) }, props: { 이름: '구역 다', 용도: '공원', 면적비율: 0.27 } },
+        ],
+      },
+    ],
+  },
+  await initSqlJs(),
+);
+write('서울-지도.gpkg', gpkg);
+
 console.log('samples ->', out);

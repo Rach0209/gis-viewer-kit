@@ -2,7 +2,7 @@
  * 벡터 파일 이름 규칙. 무거운 라이브러리(shpjs, proj4, ZIP)를 끌어오지 않아서 화면 쪽에서도 가볍게 쓴다.
  * 실제 읽기는 워커에서 vectorParse.js 가 한다.
  */
-const VECTOR_EXT = /\.(shp|dbf|prj|cpg|shx|geojson|json|zip|kml|kmz|gpx|csv|sld)$/i;
+const VECTOR_EXT = /\.(shp|dbf|prj|cpg|shx|geojson|json|zip|kml|kmz|gpx|csv|gpkg|sld)$/i;
 export const isVectorFileName = (name) => VECTOR_EXT.test(name);
 
 export const baseOf = (path) => path.split('/').pop();
@@ -31,7 +31,7 @@ export function planSources(files) {
   const skipped = [];
   for (const f of files) {
     const ext = extOf(f.name);
-    if (['zip', 'kmz', 'geojson', 'json', 'kml', 'gpx', 'csv'].includes(ext)) sources.push({ label: baseOf(f.name), files: [f] });
+    if (['zip', 'kmz', 'geojson', 'json', 'kml', 'gpx', 'csv', 'gpkg'].includes(ext)) sources.push({ label: baseOf(f.name), files: [f] });
     else if (ext === 'sld') styles.push(f);
     else if (SHP_PARTS.includes(ext)) {
       const key = stemOf(f.name).toLowerCase();

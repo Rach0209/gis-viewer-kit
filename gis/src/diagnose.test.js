@@ -23,9 +23,9 @@ describe('problem / splitProblem', () => {
 
 describe('explainSkipped (열지 못한 파일의 이유)', () => {
   it('형식마다 이유와 해결 방법을 준다', () => {
-    const out = explainSkipped(['a.gpkg', 'b.xlsx', 'c.dxf', 'd.7z']);
+    const out = explainSkipped(['a.mif', 'b.xlsx', 'c.dxf', 'd.7z']);
     expect(out).toHaveLength(4);
-    expect(out[0]).toMatch(/a\.gpkg: GeoPackage/);
+    expect(out[0]).toMatch(/a\.mif: MapInfo/);
     expect(out[0]).toMatch(/→ .*GeoJSON/);
     expect(splitProblem(out[1]).hint).toMatch(/CSV/);
     expect(out[2]).toMatch(/CAD/);
@@ -33,9 +33,9 @@ describe('explainSkipped (열지 못한 파일의 이유)', () => {
   });
 
   it('같은 종류는 한 안내로 묶고 파일 이름은 3개까지만 보여 준다', () => {
-    const out = explainSkipped(['1.gpkg', '2.gpkg', '3.gpkg', '4.gpkg', '5.gpkg']);
+    const out = explainSkipped(['1.mif', '2.mif', '3.mif', '4.mif', '5.mif']);
     expect(out).toHaveLength(1);
-    expect(out[0]).toContain('1.gpkg, 2.gpkg, 3.gpkg 외 2개');
+    expect(out[0]).toContain('1.mif, 2.mif, 3.mif 외 2개');
   });
 
   it('.shp 없이 남은 .dbf/.prj 는 .shp 를 같이 고르라고 알려 준다', () => {
@@ -69,7 +69,7 @@ describe('explainSkipped (열지 못한 파일의 이유)', () => {
 
 describe('explainNoItems', () => {
   it('오류와 건너뛴 파일의 이유를 모두 모으고, 아무것도 없으면 기본 안내', () => {
-    const out = explainNoItems({ errors: [problem('a.json: 읽을 수 없습니다.', '확인하세요.')], skipped: ['b.gpkg'] });
+    const out = explainNoItems({ errors: [problem('a.json: 읽을 수 없습니다.', '확인하세요.')], skipped: ['b.mif'] });
     expect(out).toHaveLength(2);
     expect(explainNoItems()[0]).toMatch(/열 수 있는 벡터 자료를 찾지 못했습니다/);
   });

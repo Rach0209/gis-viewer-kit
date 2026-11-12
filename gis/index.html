@@ -16,6 +16,11 @@
       #home-link { color: var(--accent); text-decoration: none; padding: 4px 10px; border: 1px solid #2f4452; border-radius: 4px; background: var(--panel-2); white-space: nowrap; }
       #home-link:hover { border-color: var(--accent); }
       #bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+      /* 예제 목록은 글이 길어 칸이 넓다: 늘 다음 줄에 두고, 화면보다 길어지지 않게 한다 */
+      #bar .bar-break { flex-basis: 100%; height: 0; margin: -6px 0 0; }
+      #sel-sample { max-width: 100%; }
+      /* 도구 줄의 묶음 사이 구분선 */
+      #bar .bar-sep { opacity: 0.4; user-select: none; }
       button, select, input { font: inherit; color: inherit; background: var(--panel-2); border: 1px solid #2f4452; border-radius: 4px; padding: 4px 10px; }
       button { cursor: pointer; }
       button:hover { border-color: var(--accent); }
@@ -146,20 +151,25 @@
       <a id="home-link" href="../" hidden title="시작 화면으로">← 홈</a>
       <button id="btn-folder" type="button">3D Tiles 폴더 열기</button>
       <button id="btn-glb" type="button">glb 열기</button>
-      <button id="btn-vec" type="button" title="SHP(+dbf/prj), GeoJSON, KML/KMZ(구글어스), GPX(GPS), CSV(경도·위도 열이 있는 표), ZIP">벡터 열기</button>
-      <button id="btn-dem" type="button">지형(DEM) 열기</button>
+      <span class="bar-sep" aria-hidden="true">|</span>
+      <button id="btn-vec" type="button" title="SHP(+dbf/prj), GeoJSON, KML/KMZ(구글어스), GPX(GPS), CSV(경도·위도 열이 있는 표), GeoPackage(.gpkg), ZIP">벡터 열기</button>
       <button id="btn-img" type="button" title="항공·위성 사진(GeoTIFF), 또는 PNG/JPG + 월드파일(.pgw/.jgw/.wld)">이미지 열기</button>
-      <select id="sel-sample" aria-label="예제 열기" title="자료가 없어도 바로 써 볼 수 있는 작은 가상 샘플"></select>
+      <span class="bar-sep" aria-hidden="true">|</span>
+      <button id="btn-dem" type="button">지형(DEM) 열기</button>
       <button id="btn-terrain" type="button" title="Cesium 지형 타일 폴더(layer.json + .terrain 타일)">지형 타일 폴더 열기</button>
-      <span style="opacity: 0.4">|</span>
+      <span class="bar-sep" aria-hidden="true">|</span>
       <select id="sel-map" aria-label="배경 지도"></select>
       <input id="in-key" type="password" placeholder="VWorld API 키" autocomplete="off" hidden aria-label="VWorld API 키" />
-      <span style="opacity: 0.4">|</span>
+      <span class="bar-sep" aria-hidden="true">|</span>
       <button id="btn-measure" type="button" aria-pressed="false">거리 재기</button>
       <button id="btn-area" type="button" aria-pressed="false">면적 재기</button>
+      <span class="bar-sep" aria-hidden="true">|</span>
       <button id="btn-home" type="button">처음 시점</button>
       <button id="btn-shot" type="button">스크린샷</button>
+      <span class="bar-sep" aria-hidden="true">|</span>
       <select id="sel-perf" aria-label="성능 모드"></select>
+      <span class="bar-break" aria-hidden="true"></span>
+      <select id="sel-sample" aria-label="예제 열기" title="자료가 없어도 바로 써 볼 수 있는 작은 가상 샘플"></select>
     </div>
     <div id="stage">
       <div id="cesium"></div>
@@ -172,7 +182,7 @@
       <div id="mousehint"></div>
       <div id="status" hidden></div>
       <div id="busy" role="status" aria-live="polite" hidden><div class="box"><span class="spin"></span><span class="msg"></span></div></div>
-      <div id="drop">폴더, glb, SHP / GeoJSON / KML / GPX / CSV, 지형(.tif 또는 지형 타일 폴더)을 여기에 놓으세요</div>
+      <div id="drop">폴더, glb, SHP / GeoJSON / KML / GPX / CSV / GeoPackage, 지형(.tif 또는 지형 타일 폴더)을 여기에 놓으세요</div>
     </div>
     <script>
       window.CESIUM_BASE_URL = new URL('./cesium/', window.location.href).href; // 하위 경로(GitHub Pages 등)에서도 동작하게 상대 경로

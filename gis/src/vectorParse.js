@@ -97,7 +97,7 @@ export async function collectGroups(files) {
     } else if (ext === 'geojson' || ext === 'json') {
       groups.push({ name: baseOf(e.path), kind: 'geojson', parts: { geojson: e } });
       used.add(e.path);
-    } else if (ext === 'kml' || ext === 'gpx' || ext === 'csv') {
+    } else if (ext === 'kml' || ext === 'gpx' || ext === 'csv' || ext === 'gpkg') {
       // KMZ 안의 doc.kml 은 이름이 늘 같아서 KMZ 파일 이름으로 보여 준다
       const name = e.origin ? baseOf(e.origin) : baseOf(e.path);
       groups.push({ name, kind: ext, parts: { file: e } });
@@ -132,7 +132,23 @@ function assertNotEmpty(buf, name) {
   if (!buf || buf.byteLength === 0) throw new Error(problem(`${name}: 비어 있는 파일(0바이트)입니다.`, '내려받기나 복사가 중간에 끊겼을 수 있습니다. 원본을 다시 받아 보세요.'));
 }
 
+/**
+ * 묶음 하나를 읽어 원본(raw)들로 돌려준다. 거의 모든 형식은 원본 하나지만, GeoPackage 는 한 파일에 지형지물 표가 여러 개 들어 있어
+ * 표마다 원본이 하나씩 나온다. (표를 훑는 라이브러리(sql.js, wasm)는 GeoPackage를 열 때만 불러온다)
+ * @returns {Promise<{raws: object[], skippedTables?: string[]}>}
+ */
+export async function readRaws(group) {
+  if (group.kind === 'gpkg') {
+    const buf = await group.parts.file.read();
+    assertNotEmpty(buf, group.name);
+    const { readGpkg } = await import('./gpkgRead.js');
+    return readGpkg(buf, group.name);
+  }
+  return { raws: [await readRaw(group)] };
+}
+
 export async function readRaw(group) {
+  if (group.kind === 'gpkg') throw new Error('GeoPackage는 readRaws 로 읽습니다 (표가 여러 개일 수 있습니다)');
   if (group.kind === 'geojson') {
     const buf = await group.parts.geojson.read();
     assertNotEmpty(buf, group.name);
@@ -282,6 +298,17 @@ function resolveCrs(raw, bbox, choice) {
   // KML·GPX 는 규격상 늘 경위도(WGS84)다
   if (raw.crsFixed) return identity('EPSG:4326', 'WGS84 (KML·GPX는 항상 경위도)', 'format');
 
+  // GeoPackage 는 좌표계가 파일 안에 있다: EPSG 번호를 알면 그것으로, 아니면 파일에 든 정의(WKT)로
+  if (raw.srs) {
+    if (raw.srs.code && (raw.srs.code === 'EPSG:4326' || isKnownCrs(raw.srs.code))) return fromCode(raw.srs.code, 'gpkg');
+    if (raw.srs.wkt && /^\s*(PROJCS|GEOGCS|PROJCRS|GEOGCRS|GEODCRS|COMPD_CS|COMPOUNDCRS|\+proj)/i.test(raw.srs.wkt)) {
+      try {
+        return fromDef(raw.srs.wkt, raw.srs.code, `GeoPackage: ${projName(raw.srs.wkt) ?? '정의 있음'}`, 'gpkg');
+      } catch {
+        /* 해석할 수 없으면 추정으로 넘어간다 */
+      }
+    }
+  }
   if (raw.kind === 'shp' && raw.prjText) {
     try {
       return fromDef(raw.prjText, null, `.prj: ${projName(raw.prjText) ?? '정의 있음'}`, 'prj');
@@ -316,7 +343,7 @@ const rawFeatures = (raw, props) => {
  * @returns {{collection:object, info:object}}
  */
 export function buildCollection(raw, { encoding = 'auto', crs = 'auto', delimiter = 'auto', xCol, yCol, swapXY = false } = {}) {
-  const warnings = [];
+  const warnings = [...(raw.readWarnings ?? [])]; // 읽는 중에 알게 된 것(GeoPackage의 지원하지 않는 도형 등)
 
   // 속성 (SHP만 DBF가 따로 있다)
   let enc = null;
