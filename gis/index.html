@@ -124,6 +124,18 @@
       #status { position: absolute; left: 10px; bottom: 10px; max-width: 70%; padding: 4px 10px; background: rgba(20, 25, 29, 0.94); border: 1px solid var(--line); border-radius: 4px; z-index: 5; }
       #status.error { border-color: var(--bad); color: var(--bad); }
       #status.busy { border-color: var(--accent); }
+      #status.hint { border-color: var(--accent); }
+      /* 오래 걸리는 작업 표시: 가운데에 돌아가는 표시 + 문구. 클릭을 막지 않는다.
+         0.3초 뒤에 나타나고(짧은 작업에서는 안 보임), 돌기와 나타남은 transform/opacity 애니메이션이라
+         화면이 잠깐 굳어 있어도 계속 움직인다. */
+      #busy { position: absolute; inset: 0; z-index: 8; display: flex; align-items: center; justify-content: center; pointer-events: none; animation: busy-in 0.2s ease 0.3s both; }
+      #busy[hidden] { display: none; }
+      #busy .box { display: flex; align-items: center; gap: 12px; max-width: min(460px, calc(100% - 32px)); padding: 12px 18px; background: rgba(20, 25, 29, 0.96); border: 1px solid var(--accent); border-radius: 6px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); }
+      #busy .spin { flex: none; width: 22px; height: 22px; border: 3px solid rgba(92, 196, 209, 0.25); border-top-color: var(--accent); border-radius: 50%; animation: busy-spin 0.8s linear infinite; }
+      #busy .msg { overflow-wrap: anywhere; }
+      @keyframes busy-in { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes busy-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { #busy .spin { animation-duration: 2.4s; } }
       #drop { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(11, 13, 16, 0.7); border: 2px dashed var(--accent); font-size: 18px; z-index: 9; pointer-events: none; }
       #drop.on { display: flex; }
       @media (max-width: 700px) { #layers { width: calc(100% - 20px); max-height: 40%; } #place { top: auto; bottom: 50px; right: 10px; left: 10px; width: auto; } }
@@ -159,6 +171,7 @@
       <div id="coord" class="panel"><select id="sel-crs" aria-label="좌표 표시 좌표계"></select><span id="coord-text">지도 위에 마우스를 올려 보세요</span><button id="coord-copy" type="button" title="마지막으로 본 위치의 좌표(위에서 고른 좌표계의 X, Y)를 복사합니다">복사</button></div>
       <div id="mousehint"></div>
       <div id="status" hidden></div>
+      <div id="busy" role="status" aria-live="polite" hidden><div class="box"><span class="spin"></span><span class="msg"></span></div></div>
       <div id="drop">폴더, glb, SHP / GeoJSON / KML / GPX / CSV, 지형(.tif 또는 지형 타일 폴더)을 여기에 놓으세요</div>
     </div>
     <script>

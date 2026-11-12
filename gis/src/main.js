@@ -59,9 +59,16 @@ function button(label, onClick, cls = '') {
 
 // ---------------------------------------------------------------- 상태 표시
 const statusEl = $('status');
+const busyEl = $('busy');
 let statusTimer = null;
+/**
+ * 아래쪽 상태 줄. kind: ''(잠깐 보였다 사라짐) | 'error' | 'hint'(할 일을 알려 줌, 계속 보임) |
+ * 'busy'(오래 걸리는 작업 중: 가운데에도 돌아가는 표시를 띄운다. 다음 setStatus가 부르면 사라진다)
+ */
 function setStatus(msg, kind = '') {
   clearTimeout(statusTimer);
+  busyEl.hidden = !(msg && kind === 'busy');
+  if (!busyEl.hidden) busyEl.querySelector('.msg').textContent = msg;
   if (!msg) {
     statusEl.hidden = true;
     return;
@@ -71,6 +78,22 @@ function setStatus(msg, kind = '') {
   statusEl.className = kind;
   if (kind === '') statusTimer = setTimeout(() => (statusEl.hidden = true), 6000);
 }
+/**
+ * 화면에 방금 바꾼 내용(상태 문구, 돌아가는 표시)이 그려진 뒤에 돌려준다.
+ * 곧바로 오래 걸리는 계산(지도에 올리기)을 시작하면 문구가 그려지기 전에 화면이 굳기 때문에, 그 앞에서 기다린다.
+ */
+const nextPaint = () =>
+  new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (!done) {
+        done = true;
+        resolve();
+      }
+    };
+    requestAnimationFrame(() => requestAnimationFrame(finish));
+    setTimeout(finish, 100); // 화면이 가려져 있어 프레임이 오지 않는 경우의 대비
+  });
 const errMsg = (e) => String(e?.message ?? e);
 
 // ---------------------------------------------------------------- 뷰어 (ion 없이)
@@ -876,7 +899,7 @@ function openEdit(layerId) {
       setStatus(`모델 높이를 지형에 맞췄습니다: ${h.toFixed(2)} m`);
     },
     onPickMap: () => {
-      setStatus('모델을 옮길 위치를 지도에서 클릭하세요.', 'busy');
+      setStatus('모델을 옮길 위치를 지도에서 클릭하세요.', 'hint');
       armPick(async (c) => {
         await applyModelPatch(layer, { lon: c.lon, lat: c.lat });
         setStatus(`모델을 옮겼습니다: 경도 ${c.lon.toFixed(6)}, 위도 ${c.lat.toFixed(6)}`);
@@ -1396,6 +1419,10 @@ async function startVector(fileList) {
         opened.release(); // 인코딩·좌표계를 다시 고를 일은 끝났으니 워커에 둔 원본을 놓는다
         try {
           let last = null;
+          // 지도에 올리는 동안은 화면이 잠깐 굳는다(점이 많을수록 길다). 먼저 안내를 그려 둔다.
+          const total = results.reduce((a, r) => a + r.info.count, 0);
+          setStatus(`지도에 올리는 중… 피처 ${total.toLocaleString('ko-KR')}개`, 'busy');
+          await nextPaint();
           for (const r of results) {
             const ds = await createVectorDataSource(r.collection, { name: r.name, useHeights: r.useHeights, heightOffset: r.heightOffset, pointStyle: r.pointStyle });
             const styleState = r.style ? applyStyle(ds, r.style, r.collection) : null; // 지도에 올리기 전에 칠해야 빠르다
@@ -1409,8 +1436,8 @@ async function startVector(fileList) {
             last = ds;
           }
           closePlace();
+          setStatus(`${results.length}개 레이어를 열었습니다 (피처 ${total.toLocaleString('ko-KR')}개). 지도에서 피처를 클릭하면 속성이 보입니다.`);
           if (last) await viewer.zoomTo(last);
-          setStatus(`${results.length}개 레이어를 열었습니다 (피처 ${results.reduce((a, r) => a + r.info.count, 0).toLocaleString('ko-KR')}개). 지도에서 피처를 클릭하면 속성이 보입니다.`);
         } catch (e) {
           setStatus(errMsg(e), 'error');
         }
@@ -1542,6 +1569,7 @@ async function openDropped(src) {
   if (total === 1 || (kindCount(plan) === 1 && plan.vectors.length)) {
     return run({ tilesets: plan.tilesets.map((_, i) => i), terrains: plan.terrains.map((_, i) => i), models: plan.models.map((_, i) => i), dems: plan.dems.map((_, i) => i), rasters: plan.rasters.map((_, i) => i), vectors: plan.vectors.map((_, i) => i) });
   }
+  setStatus(''); // 읽기는 끝났다: 무엇을 열지 고르는 동안 '읽는 중' 표시가 남지 않게
   showDropChoices(placeEl, plan, { onOpen: run, onCancel: closePlace });
   return undefined;
 }

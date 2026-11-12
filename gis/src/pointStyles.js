@@ -16,6 +16,15 @@ export const POINT_STYLES = [
 /** 아무것도 고르지 않았을 때의 모양 */
 export const DEFAULT_POINT_STYLE = 'pin';
 
+/**
+ * 점이 이 개수 이상이면 '핀'은 지도에 올리는 데 너무 오래 걸린다 (핀은 점마다 그림 하나라서, 3만 개를 올리는 데
+ * 그래픽 가속이 없는 시험 브라우저에서 약 25초, 작은 점은 약 3초 걸렸다). PC에 따라 많이 달라서 정확한 값은 아니고 안전하게 잡은 기준이다.
+ */
+export const HEAVY_POINT_COUNT = 10000;
+
+/** 점이 아주 많은데 '핀'이면 가벼운 '작은 점'으로 바꿔 준다. 그 밖에는 고른 그대로. */
+export const lightPointStyleFor = (id, count) => (normalizePointStyle(id) === 'pin' && count >= HEAVY_POINT_COUNT ? 'dot' : normalizePointStyle(id));
+
 const KEY = 'gis-viewer-kit:pointStyle';
 
 /** 알 수 없는 값은 기본 모양으로 */

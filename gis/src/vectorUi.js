@@ -6,7 +6,7 @@ import { CRS_LIST } from '../../viewer/src/kit/crsList.js';
 import { enhanceCrsSelect } from '../../viewer/src/kit/crsPicker.js';
 import { explainSkipped } from './diagnose.js';
 import { problemNode } from './diagnoseUi.js';
-import { POINT_STYLES, hasPointGeometry, loadPointStyle, savePointStyle } from './pointStyles.js';
+import { POINT_STYLES, hasPointGeometry, lightPointStyleFor, loadPointStyle, pointStyleSpec, savePointStyle } from './pointStyles.js';
 import { pickRule } from './sld.js';
 
 const CRS_CHOICES = CRS_LIST.map((c) => ({ code: c.code, label: c.label }));
@@ -143,15 +143,18 @@ export function showVectorPanel(panel, items, { skipped = [], errors = [], style
     const pointSel = select(POINT_STYLES.map((p) => [p.id, p.label]), st.pointStyle);
     pointSel.title = '점을 지도에 그리는 모양. 점이 아주 많으면 "작은 점"이 보기 좋고 가볍습니다. 열고 난 뒤에도 레이어 줄에서 바꿀 수 있습니다.';
     pointRow.append(el('label', null, '점 모양'), pointSel);
+    const pointNote = el('div', 'sub'); // 점이 많아서 모양을 바꿔 열 때 이유를 알려 준다
+    pointNote.hidden = true;
     pointSel.addEventListener('change', () => {
       st.pointStyle = pointSel.value;
       savePointStyle(st.pointStyle);
+      pointNote.hidden = true; // 직접 골랐으니 안내는 접는다
     });
     const detail = el('div', 'sub');
     const sample = el('div', 'sample');
     const styleInfo = el('div', 'sub');
     const warns = el('div');
-    fs.append(summary, form, swapRow, pointRow, detail, sample, styleInfo, heightRow, warns);
+    fs.append(summary, form, swapRow, pointRow, pointNote, detail, sample, styleInfo, heightRow, warns);
     panel.append(fs);
 
     /** 이 데이터가 가진 속성 이름을 모두 쓰는 스타일을 찾는다 (SLD 필터가 가리키는 속성이 있어야 칠할 수 있다) */
@@ -207,6 +210,17 @@ export function showVectorPanel(panel, items, { skipped = [], errors = [], style
       sample.textContent = info.encoding || st.item.kind === 'geojson' || st.item.kind === 'csv' ? `속성 예: ${sampleText(info.sampleProperties)}` : '';
       swapRow.hidden = !info.swapSuspected;
       pointRow.hidden = !hasPointGeometry(info.geometryTypes);
+      // 점이 아주 많은데 핀이면(처음 한 번) 가벼운 모양으로 바꿔 연다. 기억해 둔 선택(저장소)은 그대로 둔다.
+      if (!st.pointChecked && hasPointGeometry(info.geometryTypes)) {
+        st.pointChecked = true;
+        const light = lightPointStyleFor(st.pointStyle, info.count);
+        if (light !== st.pointStyle) {
+          st.pointStyle = light;
+          pointSel.value = light;
+          pointNote.textContent = `점이 ${info.count.toLocaleString('ko-KR')}개로 많아서 이번에는 '${pointStyleSpec(light).label}'으로 열도록 바꿨습니다. '핀'은 점이 많으면 지도에 올리는 데 오래 걸려 화면이 한참 멈춥니다 (PC에 따라 수 초~수십 초). 원하면 위에서 다시 고르세요.`;
+          pointNote.hidden = false;
+        }
+      }
       heightRow.hidden = !info.hasHeights;
       if (!info.hasHeights && st.useHeights) {
         st.useHeights = false;
@@ -268,11 +282,13 @@ export function showVectorPanel(panel, items, { skipped = [], errors = [], style
     const results = states.filter((s) => s.result).map((s) => ({ name: s.item.name, collection: s.result.collection, info: s.result.info, style: s.styleIndex >= 0 ? styles[s.styleIndex].style : null, useHeights: s.useHeights && !!s.result.info.hasHeights, heightOffset: Number(s.heightOffset) || 0, pointStyle: s.pointStyle }));
     if (!results.length) return;
     confirming = true;
+    ok.textContent = '올리는 중…';
     refreshOk();
     try {
       await onConfirm(results);
     } finally {
       confirming = false;
+      ok.textContent = '열기';
       refreshOk();
     }
   });

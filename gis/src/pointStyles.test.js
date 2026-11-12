@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_POINT_STYLE, POINT_STYLES, hasPointGeometry, loadPointStyle, normalizePointStyle, pointStyleSpec, savePointStyle } from './pointStyles.js';
+import { DEFAULT_POINT_STYLE, HEAVY_POINT_COUNT, POINT_STYLES, hasPointGeometry, lightPointStyleFor, loadPointStyle, normalizePointStyle, pointStyleSpec, savePointStyle } from './pointStyles.js';
 
 const memory = () => {
   const m = new Map();
@@ -41,5 +41,14 @@ describe('점 모양', () => {
     const blocked = { getItem: () => { throw new Error('막힘'); }, setItem: () => { throw new Error('막힘'); } };
     expect(loadPointStyle(blocked)).toBe('pin');
     expect(() => savePointStyle('dot', blocked)).not.toThrow();
+  });
+
+  it('점이 아주 많을 때만 핀을 작은 점으로 바꿔 준다', () => {
+    expect(lightPointStyleFor('pin', HEAVY_POINT_COUNT)).toBe('dot');
+    expect(lightPointStyleFor('pin', 30000)).toBe('dot');
+    expect(lightPointStyleFor('pin', HEAVY_POINT_COUNT - 1)).toBe('pin');
+    expect(lightPointStyleFor('circle', 30000)).toBe('circle'); // 이미 핀이 아니면 그대로
+    expect(lightPointStyleFor('dot', 30000)).toBe('dot');
+    expect(lightPointStyleFor(undefined, 30000)).toBe('dot'); // 기본값(핀)도 같은 취급
   });
 });
